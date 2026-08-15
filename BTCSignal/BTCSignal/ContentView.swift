@@ -26,6 +26,10 @@ struct ContentView: View {
 
     private let engine = SignalEngine()
 
+    private func refreshTask() {
+        Task { await refresh() }
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -176,7 +180,7 @@ struct ContentView: View {
                 }
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.3)) {
-                        Task.detached { @MainActor in await refresh() }
+                        refreshTask()
                     }
                 }) {
                     Image(systemName: "arrow.clockwise")
@@ -516,7 +520,7 @@ struct ContentView: View {
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.btcSubtext)
                 .multilineTextAlignment(.center)
-            Button(action: { Task.detached { @MainActor in await refresh() } }) {
+            Button(action: { refreshTask() }) {
                 HStack {
                     Image(systemName: "arrow.clockwise")
                     Text("Try Again")
