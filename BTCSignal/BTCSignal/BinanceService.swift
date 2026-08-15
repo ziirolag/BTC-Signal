@@ -5,7 +5,7 @@ import Foundation
 class BinanceService {
 
     static let shared = BinanceService()
-    private let base = "https://api.binance.com/api/v3"
+    private let base = "https://api.binance.us/api/v3"
 
     // MARK: - Klines (Candles)
 
