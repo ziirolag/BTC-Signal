@@ -23,6 +23,7 @@ struct ContentView: View {
     @State private var showInfo = false
     @State private var animateSignal = false
     @State private var selectedTab = 0
+    @State private var tradeMode: TradeMode = .long
 
     private let engine = SignalEngine()
 
@@ -68,6 +69,9 @@ struct ContentView: View {
             .onChange(of: signal) { newSignal in
                 checkAndNotify(signal: newSignal)
             }
+            .onChange(of: tradeMode) { _ in
+                refreshTask()
+            }
         }
     }
 
@@ -100,6 +104,7 @@ struct ContentView: View {
     private var signalTab: some View {
         VStack(spacing: 16) {
             headerView
+            tradeModePicker
 
             if priceService.isLoading {
                 loadingView
@@ -108,7 +113,10 @@ struct ContentView: View {
             } else if let signal = signal {
                 signalHeroCard(signal)
                 priceRow(signal)
+                entryExitCard(signal)
                 chartView
+                volumeCard(signal)
+                orderBookCard
                 indicatorGrid(signal)
                 analysisCard(signal)
                 disclaimerCard
@@ -122,11 +130,9 @@ struct ContentView: View {
 
     private var positionsTab: some View {
         VStack(spacing: 16) {
-            // Quick stats at top
             if let signal = signal {
                 miniSignalBar(signal)
             }
-
             PositionsView(
                 positionManager: positionManager,
                 notificationManager: notificationManager,
@@ -135,7 +141,38 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Mini Signal Bar (on positions tab)
+    // MARK: - Trade Mode Picker
+
+    private var tradeModePicker: some View {
+        HStack(spacing: 6) {
+            ForEach(TradeMode.allCases) { mode in
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.25)) { tradeMode = mode }
+                }) {
+                    VStack(spacing: 3) {
+                        Image(systemName: mode.icon)
+                            .font(.system(size: 12, weight: .bold))
+                        Text(mode.rawValue)
+                            .font(.system(size: 11, weight: .heavy))
+                    }
+                    .foregroundColor(tradeMode == mode ? .white : .btcSubtext)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(tradeMode == mode ? Color.btcOrange.opacity(0.18) : Color.btcCard)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(tradeMode == mode ? Color.btcOrange.opacity(0.4) : Color.clear, lineWidth: 1)
+                    )
+                }
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+
+    // MARK: - Mini Signal Bar
 
     private func miniSignalBar(_ signal: TradingSignal) -> some View {
         HStack(spacing: 10) {
@@ -167,8 +204,8 @@ struct ContentView: View {
                 Text("BTC Signal")
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                     .foregroundColor(.white)
-                Text("Technical Analysis")
-                    .font(.system(size: 13, weight: .medium))
+                Text(tradeMode.description)
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.btcSubtext)
             }
             Spacer()
@@ -231,6 +268,14 @@ struct ContentView: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.btcSubtext)
                 }
+
+                // Trade mode badge
+                Text(signal.tradeMode.holdTime)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.btcSubtext)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.white.opacity(0.06)))
             }
             .padding(.vertical, 28)
             .frame(maxWidth: .infinity)
@@ -260,6 +305,260 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(signalColor(signal.signal).opacity(0.15), lineWidth: 1)
         )
+    }
+
+    // MARK: - Entry/Exit Card
+
+    private func entryExitCard(_ signal: TradingSignal) -> some View {
+        Group {
+            if let ee = signal.entryExit {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Image(systemName: "target")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.btcOrange)
+                        Text("Entry / Exit")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.white)
+                        Spacer()
+                        Text("R:R \(String(format: "%.1f", ee.riskRewardRatio)):1")
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundColor(ee.riskRewardRatio >= 2 ? .btcGreen : ee.riskRewardRatio >= 1.5 ? .btcYellow : .btcRed)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Capsule().fill((ee.riskRewardRatio >= 2 ? Color.btcGreen : ee.riskRewardRatio >= 1.5 ? Color.btcYellow : Color.btcRed).opacity(0.12)))
+                    }
+
+                    // Entry
+                    eeRow(label: "Entry", value: formatPriceFull(ee.entryPrice), color: .white)
+
+                    // Stop Loss
+                    eeRow(label: "Stop Loss", value: "\(formatPriceFull(ee.stopLoss)) (\(String(format: "%.1f", ee.stopLossPercent))%)", color: .btcRed)
+
+                    // Take Profits
+                    eeRow(label: "TP 1", value: "\(formatPriceFull(ee.takeProfit1)) (+\(String(format: "%.1f", ee.takeProfit1Percent))%)", color: .btcGreen)
+                    eeRow(label: "TP 2", value: "\(formatPriceFull(ee.takeProfit2)) (+\(String(format: "%.1f", ee.takeProfit2Percent))%)", color: .btcGreen)
+
+                    // Position size suggestion
+                    HStack {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 10))
+                            .foregroundColor(.btcSubtext)
+                        Text("Suggested position: \(String(format: "%.0f", ee.positionSizePct))% of portfolio")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.btcSubtext)
+                    }
+
+                    // Reasoning
+                    ForEach(Array(ee.reasoning.enumerated()), id: \.offset) { _, reason in
+                        HStack(alignment: .top, spacing: 6) {
+                            Circle()
+                                .fill(Color.btcOrange.opacity(0.4))
+                                .frame(width: 4, height: 4)
+                                .padding(.top, 6)
+                            Text(reason)
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundColor(.white.opacity(0.75))
+                        }
+                    }
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.btcCard)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(Color.btcOrange.opacity(0.12), lineWidth: 1)
+                )
+            }
+        }
+    }
+
+    private func eeRow(label: String, value: String, color: Color) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.btcSubtext)
+                .frame(width: 70, alignment: .leading)
+            Text(value)
+                .font(.system(size: 14, weight: .bold, design: .monospaced))
+                .foregroundColor(color)
+            Spacer()
+        }
+    }
+
+    // MARK: - Volume Card
+
+    private func volumeCard(_ signal: TradingSignal) -> some View {
+        Group {
+            if let vol = signal.volumeAnalysis {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "chart.bar.fill")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.btcOrange)
+                        Text("Volume")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.white)
+                        Spacer()
+                        if vol.isVolumeSpike {
+                            Text("🔥 SPIKE")
+                                .font(.system(size: 11, weight: .heavy))
+                                .foregroundColor(.btcRed)
+                        }
+                    }
+
+                    HStack(spacing: 0) {
+                        volStat(label: "Current", value: formatVolume(vol.currentVolume))
+                        volStat(label: "Average", value: formatVolume(vol.avgVolume))
+                        volStat(label: "Ratio", value: "×\(String(format: "%.1f", vol.volumeRatio))",
+                                color: vol.volumeRatio > 1.5 ? .btcGreen : .btcSubtext)
+                    }
+
+                    HStack(spacing: 0) {
+                        volStat(label: "VWAP", value: formatPriceFull(vol.vwap))
+                        volStat(label: "OBV", value: vol.obvTrend == .up ? "↑ Rising" : "↓ Falling",
+                                color: vol.obvTrend == .up ? .btcGreen : .btcRed)
+                        volStat(label: "Trades", value: formatVolume(vol.currentVolume))
+                    }
+
+                    // Volume bar visualization
+                    let maxVol = max(vol.currentVolume, vol.avgVolume)
+                    if maxVol > 0 {
+                        VStack(spacing: 4) {
+                            volBar(label: "Now", value: vol.currentVolume, max: maxVol, color: vol.isVolumeSpike ? .btcRed : .btcOrange)
+                            volBar(label: "Avg", value: vol.avgVolume, max: maxVol, color: .btcSubtext)
+                        }
+                    }
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.btcCard)
+                )
+            }
+        }
+    }
+
+    private func volStat(label: String, value: String, color: Color = .white) -> some View {
+        VStack(spacing: 3) {
+            Text(label)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.btcSubtext)
+            Text(value)
+                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                .foregroundColor(color)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func volBar(label: String, value: Double, max: Double, color: Color) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.btcSubtext)
+                .frame(width: 30, alignment: .trailing)
+            GeometryReader { geo in
+                let pct = max > 0 ? value / max : 0
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(color.opacity(0.3))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(color)
+                            .frame(width: geo.size.width * pct),
+                        alignment: .leading
+                    )
+            }
+            .frame(height: 8)
+        }
+    }
+
+    // MARK: - Order Book Card
+
+    private var orderBookCard: some View {
+        Group {
+            if let book = priceService.orderBook {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "book.closed")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.btcOrange)
+                        Text("Order Book")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.white)
+                        Spacer()
+                        Text("Spread: \(String(format: "%.1f", book.spreadPercent * 100))%")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundColor(.btcSubtext)
+                    }
+
+                    let imbalance = book.imbalance(rangePercent: 0.5)
+                    HStack(spacing: 12) {
+                        // Bid side
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("BIDS")
+                                .font(.system(size: 10, weight: .heavy))
+                                .foregroundColor(.btcGreen)
+                            ForEach(0..<min(3, book.bids.count), id: \.self) { i in
+                                HStack {
+                                    Text(formatPriceFull(book.bids[i].price))
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                        .foregroundColor(.btcGreen.opacity(0.8))
+                                    Spacer()
+                                    Text(formatQty(book.bids[i].qty))
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                        .foregroundColor(.btcSubtext)
+                                }
+                            }
+                        }
+
+                        // Ask side
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("ASKS")
+                                .font(.system(size: 10, weight: .heavy))
+                                .foregroundColor(.btcRed)
+                            ForEach(0..<min(3, book.asks.count), id: \.self) { i in
+                                HStack {
+                                    Text(formatPriceFull(book.asks[i].price))
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                        .foregroundColor(.btcRed.opacity(0.8))
+                                    Spacer()
+                                    Text(formatQty(book.asks[i].qty))
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                        .foregroundColor(.btcSubtext)
+                                }
+                            }
+                        }
+                    }
+
+                    // Imbalance bar
+                    HStack(spacing: 6) {
+                        Text("Bids")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.btcGreen)
+                        GeometryReader { geo in
+                            let bidPct = (imbalance + 1) / 2  // 0 to 1
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 3).fill(Color.btcRed.opacity(0.3))
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.btcGreen)
+                                    .frame(width: geo.size.width * bidPct)
+                            }
+                        }
+                        .frame(height: 6)
+                        Text("Asks")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.btcRed)
+                    }
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.btcCard)
+                )
+            }
+        }
     }
 
     // MARK: - Price Row
@@ -300,11 +599,11 @@ struct ContentView: View {
     private var chartView: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("30-Day Price")
+                Text("\(tradeMode.primaryInterval.displayName) Chart")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.white)
                 Spacer()
-                Text("USD")
+                Text(priceService.candles.count > 0 ? "\(priceService.candles.count) candles" : "")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.btcSubtext)
                     .padding(.horizontal, 8)
@@ -312,9 +611,9 @@ struct ContentView: View {
                     .background(Capsule().fill(Color.white.opacity(0.06)))
             }
 
-            let prices = priceService.prices.map { $0.price }
-            if prices.count > 1, let minP = prices.min(), let maxP = prices.max() {
-                chartContent(prices: prices, minP: minP, range: maxP - minP)
+            let closes = priceService.candles.map { $0.close }
+            if closes.count > 1, let minP = closes.min(), let maxP = closes.max() {
+                chartContent(prices: closes, minP: minP, range: maxP - minP)
             } else {
                 Text("No chart data")
                     .foregroundColor(.btcSubtext)
@@ -333,7 +632,7 @@ struct ContentView: View {
             let padding: CGFloat = 4
             let chartWidth = geo.size.width - padding * 2
             let chartHeight = geo.size.height - padding * 2
-            let stepX = chartWidth / CGFloat(prices.count - 1)
+            let stepX = chartWidth / CGFloat(max(prices.count - 1, 1))
             let safeRange = range > 0 ? range : 1
 
             ZStack {
@@ -424,6 +723,8 @@ struct ContentView: View {
                 indicatorTile(name: "SMA 25", value: formatChartPrice(signal.indicators.sma25), trend: signal.indicators.sma25 < signal.indicators.sma7 ? .up : .down)
                 indicatorTile(name: "RSI (14)", value: String(format: "%.1f", signal.indicators.rsi), trend: signal.indicators.rsi < 50 ? .up : .down, subtitle: rsiLabel(signal.indicators.rsi))
                 indicatorTile(name: "MACD", value: signal.indicators.macdLine > signal.indicators.signalLine ? "Bullish" : "Bearish", trend: signal.indicators.macdLine > signal.indicators.signalLine ? .up : .down)
+                indicatorTile(name: "Stoch K/D", value: "\(String(format: "%.0f", signal.indicators.stochasticK))/\(String(format: "%.0f", signal.indicators.stochasticD))", trend: signal.indicators.stochasticK > signal.indicators.stochasticD ? .up : .down)
+                indicatorTile(name: "ATR", value: formatChartPrice(signal.indicators.atr), trend: .up, subtitle: "Volatility")
             }
         }
     }
@@ -503,7 +804,7 @@ struct ContentView: View {
             ProgressView()
                 .tint(.btcOrange)
                 .scaleEffect(1.3)
-            Text("Fetching market data...")
+            Text("Fetching market data from Binance...")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundColor(.btcSubtext)
         }
@@ -547,7 +848,7 @@ struct ContentView: View {
             Text("Not enough data")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.white)
-            Text("Need at least 26 days of price history.")
+            Text("Need at least 26 candles. Try a different mode.")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(.btcSubtext)
         }
@@ -584,10 +885,8 @@ struct ContentView: View {
 
     private func checkAndNotify(signal: TradingSignal?) {
         guard let signal = signal, notificationManager.isAuthorized else { return }
-
         PriceCache.lastPrice = signal.indicators.currentPrice
 
-        // Alert on non-HOLD signals
         if signal.signal != .hold {
             notificationManager.sendSignalAlert(
                 signal: signal.signal.rawValue,
@@ -596,7 +895,6 @@ struct ContentView: View {
             )
         }
 
-        // Alert on position-specific signals
         let posSignals = positionManager.positionSignals(marketSignal: signal)
         for posSignal in posSignals {
             if posSignal.urgency == .critical || posSignal.urgency == .high {
@@ -612,10 +910,10 @@ struct ContentView: View {
     // MARK: - Helpers
 
     private func refresh() async {
-        await priceService.fetchPrices()
-        if !priceService.prices.isEmpty {
-            signal = engine.analyze(prices: priceService.prices)
-            PriceCache.lastPrice = priceService.prices.last?.price
+        await priceService.fetchData(mode: tradeMode)
+        if !priceService.candles.isEmpty {
+            signal = engine.analyze(candles: priceService.candles, orderBook: priceService.orderBook, mode: tradeMode)
+            PriceCache.lastPrice = priceService.currentPrice
         }
     }
 
@@ -664,6 +962,17 @@ struct ContentView: View {
         if price >= 10000 { return "$\(Int(price / 1000))k" }
         if price >= 1000 { return "$\(String(format: "%.1f", price / 1000))k" }
         return "$\(String(format: "%.0f", price))"
+    }
+
+    private func formatVolume(_ vol: Double) -> String {
+        if vol >= 1_000_000 { return "\(String(format: "%.1f", vol / 1_000_000))M" }
+        if vol >= 1_000 { return "\(String(format: "%.1f", vol / 1_000))K" }
+        return String(format: "%.0f", vol)
+    }
+
+    private func formatQty(_ qty: Double) -> String {
+        if qty >= 1 { return String(format: "%.2f", qty) }
+        return String(format: "%.4f", qty)
     }
 }
 

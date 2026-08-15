@@ -166,10 +166,6 @@ class PositionManager: ObservableObject {
                 recommendations.append("RSI oversold + position down — reversal may be near, consider holding")
             }
 
-            // Bollinger
-            // Price near upper band + in profit = take profit signal
-            // Price near lower band + down = potential bounce
-
             return PositionSignal(
                 position: pos,
                 entryDifference: entryDiff,

@@ -1,48 +1,73 @@
 import Foundation
 
-// MARK: - CoinGecko API Service
+// MARK: - Price Service (Binance-powered, multi-timeframe)
 
 class PriceService: ObservableObject {
-    @Published var prices: [PricePoint] = []
+    @Published var candles: [Candle] = []
+    @Published var orderBook: OrderBook?
+    @Published var ticker: Ticker24h?
     @Published var isLoading = false
     @Published var errorMessage: String?
 
-    private let baseURL = "https://api.coingecko.com/api/v3"
+    private let binance = BinanceService.shared
 
-    /// Fetch 30 days of daily BTC prices
-    func fetchPrices() async {
+    // Legacy compat — converts candles to PricePoints
+    var prices: [PricePoint] {
+        candles.map { PricePoint(date: $0.openTime, price: $0.close) }
+    }
+
+    var currentPrice: Double {
+        ticker?.lastPrice ?? candles.last?.close ?? 0
+    }
+
+    var priceChange24h: Double {
+        ticker?.priceChangePercent ?? 0
+    }
+
+    // MARK: - Fetch All Data for a Trade Mode
+
+    func fetchData(mode: TradeMode) async {
         await MainActor.run { isLoading = true; errorMessage = nil }
 
-        let urlString = "\(baseURL)/coins/bitcoin/market_chart?vs_currency=usd&days=30&interval=daily"
-
-        guard let url = URL(string: urlString) else {
-            await MainActor.run { errorMessage = "Invalid URL"; isLoading = false }
-            return
-        }
-
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            // Fetch klines + order book + ticker in parallel
+            async let klinesTask = binance.fetchKlines(
+                interval: mode.primaryInterval,
+                limit: mode.candleLimit
+            )
+            async let orderBookTask = binance.fetchOrderBook(limit: 50)
+            async let tickerTask = binance.fetch24hTicker()
 
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-                await MainActor.run { errorMessage = "API error. Try again later."; isLoading = false }
-                return
-            }
-
-            let decoded = try JSONDecoder().decode(CoinGeckoPrice.self, from: data)
-            let points = decoded.prices.map { PricePoint(
-                date: Date(timeIntervalSince1970: $0[0] / 1000),
-                price: $0[1]
-            )}
+            let (klines, book, tick) = try await (klinesTask, orderBookTask, tickerTask)
 
             await MainActor.run {
-                self.prices = points
+                self.candles = klines
+                self.orderBook = book
+                self.ticker = tick
                 self.isLoading = false
             }
         } catch {
             await MainActor.run {
-                self.errorMessage = "Network error: \(error.localizedDescription)"
+                self.errorMessage = "Failed to fetch data: \(error.localizedDescription)"
                 self.isLoading = false
             }
         }
+    }
+
+    // MARK: - Refresh Order Book Only (lightweight)
+
+    func refreshOrderBook() async {
+        do {
+            let book = try await binance.fetchOrderBook(limit: 50)
+            await MainActor.run { self.orderBook = book }
+        } catch {
+            // Silently fail — order book is supplementary
+        }
+    }
+
+    // MARK: - Legacy Fetch (backward compat)
+
+    func fetchPrices() async {
+        await fetchData(mode: .long)
     }
 }
