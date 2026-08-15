@@ -183,7 +183,7 @@ struct ContentView: View {
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.btcOrange)
                         .rotationEffect(.degrees(priceService.isLoading ? 360 : 0))
-                        .animation(priceService.isLoading ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .default, value: priceService.isLoading)
+                        .animation(.linear(duration: 0.8).repeatForever(autoreverses: false), value: priceService.isLoading)
                 }
             }
         }

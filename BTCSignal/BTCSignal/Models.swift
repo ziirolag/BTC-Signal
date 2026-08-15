@@ -8,7 +8,7 @@ struct PricePoint: Identifiable {
     let price: Double
 }
 
-enum SignalType: String {
+enum SignalType: String, Equatable {
     case strongBuy  = "STRONG BUY"
     case buy        = "BUY"
     case hold       = "HOLD"
@@ -34,15 +34,19 @@ enum SignalType: String {
     }
 }
 
-struct TradingSignal {
+struct TradingSignal: Equatable {
     let signal: SignalType
     let confidence: Double      // 0-100
     let reasons: [String]
     let indicators: IndicatorValues
     let generatedAt: Date
+
+    static func == (lhs: TradingSignal, rhs: TradingSignal) -> Bool {
+        lhs.signal == rhs.signal && lhs.generatedAt == rhs.generatedAt
+    }
 }
 
-struct IndicatorValues {
+struct IndicatorValues: Equatable {
     let sma7: Double
     let sma25: Double
     let rsi: Double
