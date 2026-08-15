@@ -70,7 +70,7 @@ struct ContentView: View {
     // MARK: - Tab Button
 
     private func tabButton(_ title: String, icon: String, tag: Int) -> some View {
-        Button(action: { withAnimation(.spring(response: 0.3)) { selectedTab = tag } }) {
+        Button(action: { withAnimation(.easeInOut(duration: 0.3)) { selectedTab = tag } }) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .semibold))
@@ -175,7 +175,7 @@ struct ContentView: View {
                         .foregroundColor(.btcSubtext)
                 }
                 Button(action: {
-                    withAnimation(.spring(response: 0.3)) {
+                    withAnimation(.easeInOut(duration: 0.3)) {
                         Task { await refresh() }
                     }
                 }) {
@@ -202,7 +202,7 @@ struct ContentView: View {
                         .frame(width: 80, height: 80)
                         .blur(radius: 20)
                         .opacity(animateSignal ? 0.6 : 0.3)
-                        .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: animateSignal)
+                        .animation(.easeInOut(duration: 1.5), value: animateSignal)
 
                     Circle()
                         .fill(signalGlow(signal.signal))
