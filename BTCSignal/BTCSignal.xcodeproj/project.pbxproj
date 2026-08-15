@@ -13,6 +13,9 @@
 		A1000004 /* SignalEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000004 /* SignalEngine.swift */; };
 		A1000005 /* PriceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000005 /* PriceService.swift */; };
 		A1000008 /* InfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000009 /* InfoView.swift */; };
+		A100000A /* PositionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000A /* PositionManager.swift */; };
+		A100000B /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000B /* NotificationManager.swift */; };
+		A100000C /* PositionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000C /* PositionsView.swift */; };
 		A1000006 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000006 /* Assets.xcassets */; };
 		A1000007 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000007 /* Preview Assets.xcassets */; };
 /* End PBXBuildFile section */
@@ -27,6 +30,9 @@
 		A2000007 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		A2000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A2000009 /* InfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InfoView.swift; sourceTree = "<group>"; };
+		A200000A /* PositionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionManager.swift; sourceTree = "<group>"; };
+		A200000B /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
+		A200000C /* PositionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionsView.swift; sourceTree = "<group>"; };
 		A3000001 /* BTCSignal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BTCSignal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -58,6 +64,9 @@
 				A2000004 /* SignalEngine.swift */,
 				A2000005 /* PriceService.swift */,
 				A2000009 /* InfoView.swift */,
+				A200000A /* PositionManager.swift */,
+				A200000B /* NotificationManager.swift */,
+				A200000C /* PositionsView.swift */,
 				A2000006 /* Assets.xcassets */,
 				A5000004 /* Preview Content */,
 				A2000008 /* Info.plist */,
@@ -157,6 +166,9 @@
 				A1000004 /* SignalEngine.swift in Sources */,
 				A1000005 /* PriceService.swift in Sources */,
 				A1000008 /* InfoView.swift in Sources */,
+				A100000A /* PositionManager.swift in Sources */,
+				A100000B /* NotificationManager.swift in Sources */,
+				A100000C /* PositionsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

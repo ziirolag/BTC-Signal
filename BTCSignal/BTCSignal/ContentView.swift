@@ -17,10 +17,12 @@ extension Color {
 
 struct ContentView: View {
     @StateObject private var priceService = PriceService()
+    @StateObject private var positionManager = PositionManager()
+    @StateObject private var notificationManager = NotificationManager()
     @State private var signal: TradingSignal?
     @State private var showInfo = false
     @State private var animateSignal = false
-    @State private var lastRefresh: Date?
+    @State private var selectedTab = 0
 
     private let engine = SignalEngine()
 
@@ -29,36 +31,128 @@ struct ContentView: View {
             ZStack {
                 Color.btcDark.ignoresSafeArea()
 
-                ScrollView {
-                    VStack(spacing: 16) {
-                        headerView
-
-                        if priceService.isLoading {
-                            loadingView
-                        } else if let error = priceService.errorMessage {
-                            errorCard(error)
-                        } else {
-                            if let signal = signal {
-                                signalHeroCard(signal)
-                                priceRow(signal)
-                                chartView
-                                indicatorGrid(signal)
-                                analysisCard(signal)
-                                disclaimerCard
-                            } else {
-                                noSignalView
-                            }
-                        }
+                VStack(spacing: 0) {
+                    // Tab selector
+                    HStack(spacing: 0) {
+                        tabButton("Signal", icon: "chart.line.uptrend.xyaxis", tag: 0)
+                        tabButton("Positions", icon: "briefcase.fill", tag: 1)
                     }
                     .padding(.horizontal, 16)
-                    .padding(.bottom, 40)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+
+                    ScrollView {
+                        VStack(spacing: 16) {
+                            if selectedTab == 0 {
+                                signalTab
+                            } else {
+                                positionsTab
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 40)
+                    }
+                    .refreshable { await refresh() }
                 }
             }
             .preferredColorScheme(.dark)
-            .task { await refresh() }
-            .refreshable { await refresh() }
+            .task {
+                await refresh()
+                notificationManager.requestPermission()
+            }
             .sheet(isPresented: $showInfo) { InfoView() }
+            .onChange(of: signal) { newSignal in
+                checkAndNotify(signal: newSignal)
+            }
         }
+    }
+
+    // MARK: - Tab Button
+
+    private func tabButton(_ title: String, icon: String, tag: Int) -> some View {
+        Button(action: { withAnimation(.spring(response: 0.3)) { selectedTab = tag } }) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .foregroundColor(selectedTab == tag ? .white : .btcSubtext)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(selectedTab == tag ? Color.btcOrange.opacity(0.15) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(selectedTab == tag ? Color.btcOrange.opacity(0.3) : Color.clear, lineWidth: 1)
+            )
+        }
+    }
+
+    // MARK: - Signal Tab
+
+    private var signalTab: some View {
+        VStack(spacing: 16) {
+            headerView
+
+            if priceService.isLoading {
+                loadingView
+            } else if let error = priceService.errorMessage {
+                errorCard(error)
+            } else if let signal = signal {
+                signalHeroCard(signal)
+                priceRow(signal)
+                chartView
+                indicatorGrid(signal)
+                analysisCard(signal)
+                disclaimerCard
+            } else {
+                noSignalView
+            }
+        }
+    }
+
+    // MARK: - Positions Tab
+
+    private var positionsTab: some View {
+        VStack(spacing: 16) {
+            // Quick stats at top
+            if let signal = signal {
+                miniSignalBar(signal)
+            }
+
+            PositionsView(
+                positionManager: positionManager,
+                notificationManager: notificationManager,
+                marketSignal: signal
+            )
+        }
+    }
+
+    // MARK: - Mini Signal Bar (on positions tab)
+
+    private func miniSignalBar(_ signal: TradingSignal) -> some View {
+        HStack(spacing: 10) {
+            Text(signalEmoji(signal.signal))
+                .font(.system(size: 18))
+            Text(signal.signal.rawValue)
+                .font(.system(size: 14, weight: .heavy, design: .rounded))
+                .foregroundColor(signalColor(signal.signal))
+            Spacer()
+            Text("$\(formatPriceFull(signal.indicators.currentPrice))")
+                .font(.system(size: 14, weight: .bold, design: .monospaced))
+                .foregroundColor(.white)
+            Text("\(signal.indicators.priceChange24h >= 0 ? "+" : "")\(String(format: "%.2f", signal.indicators.priceChange24h))%")
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundColor(signal.indicators.priceChange24h >= 0 ? .btcGreen : .btcRed)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.btcCard)
+        )
     }
 
     // MARK: - Header
@@ -101,9 +195,7 @@ struct ContentView: View {
 
     private func signalHeroCard(_ signal: TradingSignal) -> some View {
         VStack(spacing: 0) {
-            // Signal badge
             VStack(spacing: 12) {
-                // Glowing indicator
                 ZStack {
                     Circle()
                         .fill(signalGlow(signal.signal))
@@ -127,7 +219,6 @@ struct ContentView: View {
                     .foregroundColor(signalColor(signal.signal))
                     .tracking(2)
 
-                // Confidence
                 HStack(spacing: 6) {
                     Text("\(Int(signal.confidence))%")
                         .font(.system(size: 15, weight: .bold, design: .monospaced))
@@ -140,7 +231,6 @@ struct ContentView: View {
             .padding(.vertical, 28)
             .frame(maxWidth: .infinity)
 
-            // Confidence bar
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Rectangle()
@@ -243,7 +333,6 @@ struct ContentView: View {
             let safeRange = range > 0 ? range : 1
 
             ZStack {
-                // Horizontal grid lines
                 ForEach(0..<4, id: \.self) { i in
                     let y = padding + chartHeight * CGFloat(i) / 3
                     Path { p in
@@ -253,7 +342,6 @@ struct ContentView: View {
                     .stroke(Color.white.opacity(0.04), lineWidth: 0.5)
                 }
 
-                // Gradient fill
                 Path { p in
                     for (i, price) in prices.enumerated() {
                         let x = padding + CGFloat(i) * stepX
@@ -272,7 +360,6 @@ struct ContentView: View {
                     )
                 )
 
-                // Line
                 Path { p in
                     for (i, price) in prices.enumerated() {
                         let x = padding + CGFloat(i) * stepX
@@ -290,11 +377,9 @@ struct ContentView: View {
                     style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
                 )
 
-                // Current price dot + label
                 let lastX = padding + CGFloat(prices.count - 1) * stepX
                 let lastY = padding + chartHeight - CGFloat((prices.last! - minP) / safeRange) * chartHeight
 
-                // Glow behind dot
                 Circle()
                     .fill(Color.btcOrange.opacity(0.3))
                     .frame(width: 16, height: 16)
@@ -305,7 +390,6 @@ struct ContentView: View {
                     .frame(width: 7, height: 7)
                     .position(x: lastX, y: lastY)
 
-                // Min/Max labels
                 Text(formatChartPrice(minP))
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundColor(.btcSubtext.opacity(0.6))
@@ -332,27 +416,10 @@ struct ContentView: View {
                 GridItem(.flexible(), spacing: 10),
                 GridItem(.flexible(), spacing: 10)
             ], spacing: 10) {
-                indicatorTile(
-                    name: "SMA 7",
-                    value: formatChartPrice(signal.indicators.sma7),
-                    trend: signal.indicators.sma7 > signal.indicators.sma25 ? .up : .down
-                )
-                indicatorTile(
-                    name: "SMA 25",
-                    value: formatChartPrice(signal.indicators.sma25),
-                    trend: signal.indicators.sma25 < signal.indicators.sma7 ? .up : .down
-                )
-                indicatorTile(
-                    name: "RSI (14)",
-                    value: String(format: "%.1f", signal.indicators.rsi),
-                    trend: signal.indicators.rsi < 50 ? .up : .down,
-                    subtitle: rsiLabel(signal.indicators.rsi)
-                )
-                indicatorTile(
-                    name: "MACD",
-                    value: signal.indicators.macdLine > signal.indicators.signalLine ? "Bullish" : "Bearish",
-                    trend: signal.indicators.macdLine > signal.indicators.signalLine ? .up : .down
-                )
+                indicatorTile(name: "SMA 7", value: formatChartPrice(signal.indicators.sma7), trend: signal.indicators.sma7 > signal.indicators.sma25 ? .up : .down)
+                indicatorTile(name: "SMA 25", value: formatChartPrice(signal.indicators.sma25), trend: signal.indicators.sma25 < signal.indicators.sma7 ? .up : .down)
+                indicatorTile(name: "RSI (14)", value: String(format: "%.1f", signal.indicators.rsi), trend: signal.indicators.rsi < 50 ? .up : .down, subtitle: rsiLabel(signal.indicators.rsi))
+                indicatorTile(name: "MACD", value: signal.indicators.macdLine > signal.indicators.signalLine ? "Bullish" : "Bearish", trend: signal.indicators.macdLine > signal.indicators.signalLine ? .up : .down)
             }
         }
     }
@@ -368,11 +435,9 @@ struct ContentView: View {
                     .font(.system(size: 10, weight: .bold))
                     .foregroundColor(trend == .up ? .btcGreen : .btcRed)
             }
-
             Text(value)
                 .font(.system(size: 16, weight: .bold, design: .monospaced))
                 .foregroundColor(.white)
-
             if let subtitle = subtitle {
                 Text(subtitle)
                     .font(.system(size: 11, weight: .medium))
@@ -403,22 +468,18 @@ struct ContentView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.btcSubtext)
             }
-
             ForEach(Array(signal.reasons.enumerated()), id: \.offset) { index, reason in
                 HStack(alignment: .top, spacing: 10) {
-                    // Numbered bullet
                     Text("\(index + 1)")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundColor(.btcOrange)
                         .frame(width: 20, height: 20)
                         .background(Circle().fill(Color.btcOrange.opacity(0.12)))
-
                     Text(reason)
                         .font(.system(size: 13, weight: .regular))
                         .foregroundColor(.white.opacity(0.85))
                         .lineSpacing(3)
                 }
-
                 if index < signal.reasons.count - 1 {
                     Divider().background(Color.btcDivider).padding(.leading, 30)
                 }
@@ -482,10 +543,9 @@ struct ContentView: View {
             Text("Not enough data")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.white)
-            Text("Need at least 20 days of price history to generate signals.")
+            Text("Need at least 26 days of price history.")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(.btcSubtext)
-                .multilineTextAlignment(.center)
         }
         .padding(40)
         .background(
@@ -516,13 +576,42 @@ struct ContentView: View {
         )
     }
 
+    // MARK: - Notification Logic
+
+    private func checkAndNotify(signal: TradingSignal?) {
+        guard let signal = signal, notificationManager.isAuthorized else { return }
+
+        PriceCache.lastPrice = signal.indicators.currentPrice
+
+        // Alert on non-HOLD signals
+        if signal.signal != .hold {
+            notificationManager.sendSignalAlert(
+                signal: signal.signal.rawValue,
+                price: signal.indicators.currentPrice,
+                reason: signal.reasons.first ?? "Multiple indicators aligned"
+            )
+        }
+
+        // Alert on position-specific signals
+        let posSignals = positionManager.positionSignals(marketSignal: signal)
+        for posSignal in posSignals {
+            if posSignal.urgency == .critical || posSignal.urgency == .high {
+                notificationManager.sendPositionAlert(
+                    position: posSignal.position,
+                    pnlPercent: posSignal.entryDifference,
+                    reason: posSignal.recommendations.first ?? "Position needs attention"
+                )
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private func refresh() async {
         await priceService.fetchPrices()
         if !priceService.prices.isEmpty {
             signal = engine.analyze(prices: priceService.prices)
-            lastRefresh = Date()
+            PriceCache.lastPrice = priceService.prices.last?.price
         }
     }
 
