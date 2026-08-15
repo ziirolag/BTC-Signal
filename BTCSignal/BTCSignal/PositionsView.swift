@@ -147,6 +147,20 @@ struct PositionsView: View {
     }
 }
 
+
+    private func formatPrice(_ price: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 2
+        return formatter.string(from: NSNumber(value: price)) ?? String(format: "%.2f", price)
+    }
+
+    private func formatUSD(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 0
+        return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.0f", value)
+    }
 // MARK: - Position Card
 
 struct PositionCardView: View {
