@@ -157,30 +157,28 @@ class SignalEngine {
         sellScore *= trendStrength
 
         // 6. VOLUME CONFIRMATION
-        do {
-            let vol = volumeAnalysis
-            if vol.isVolumeSpike {
-                if buyScore > sellScore {
+        let vol = volumeAnalysis
+        if vol.isVolumeSpike {
+            if buyScore > sellScore {
                     buyScore += 2; confluenceCount += 1
                     reasons.append("Volume spike (×\(String(format: "%.1f", vol.volumeRatio))) confirms buying pressure")
-                } else if sellScore > buyScore {
-                    sellScore += 2; confluenceCount += 1
-                    reasons.append("Volume spike (×\(String(format: "%.1f", vol.volumeRatio))) confirms selling pressure")
-                }
+            } else if sellScore > buyScore {
+                sellScore += 2; confluenceCount += 1
+                reasons.append("Volume spike (×\(String(format: "%.1f", vol.volumeRatio))) confirms selling pressure")
             }
+        }
 
-            if vol.obvTrend == .up && buyScore > sellScore {
+        if vol.obvTrend == .up && buyScore > sellScore {
                 buyScore += 1; reasons.append("OBV trending up — accumulation")
             } else if vol.obvTrend == .down && sellScore > buyScore {
-                sellScore += 1; reasons.append("OBV trending down — distribution")
-            }
+            sellScore += 1; reasons.append("OBV trending down — distribution")
+        }
 
-            // VWAP position
-            if currentPrice > vol.vwap && buyScore > sellScore {
-                buyScore += 0.5; reasons.append("Price above VWAP \(formatUSD(vol.vwap)) — bullish")
-            } else if currentPrice < vol.vwap && sellScore > buyScore {
-                sellScore += 0.5; reasons.append("Price below VWAP \(formatUSD(vol.vwap)) — bearish")
-            }
+        // VWAP position
+        if currentPrice > vol.vwap && buyScore > sellScore {
+            buyScore += 0.5; reasons.append("Price above VWAP \(formatUSD(vol.vwap)) — bullish")
+        } else if currentPrice < vol.vwap && sellScore > buyScore {
+            sellScore += 0.5; reasons.append("Price below VWAP \(formatUSD(vol.vwap)) — bearish")
         }
 
         // 7. ORDER BOOK IMBALANCE
@@ -337,7 +335,7 @@ class SignalEngine {
         }
 
         let entry: Double
-        let sl: Double
+        var sl: Double
         let tp1: Double
         let tp2: Double
         var reasons: [String] = []
