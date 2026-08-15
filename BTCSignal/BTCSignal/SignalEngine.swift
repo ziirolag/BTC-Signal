@@ -24,9 +24,7 @@ class SignalEngine {
         let (macdLine, signalLine, histogram) = calcMACD(closes)
         let (stochK, stochD) = calcStochastic(closes, kPeriod: 14, dPeriod: 3)
         let (bbUpper, bbMiddle, bbLower) = calcBollingerBands(closes, period: 20, stdDev: 2.0)
-        let atr = calcATR(closes, period: 14)
         let adx = calcADX(closes, period: 14)
-        let vwap = calcVWAP(closes)
         let (support, resistance) = findSupportResistance(closes)
 
         let indicators = IndicatorValues(
