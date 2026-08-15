@@ -12,12 +12,12 @@
 		A1000003 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000003 /* Models.swift */; };
 		A1000004 /* SignalEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000004 /* SignalEngine.swift */; };
 		A1000005 /* PriceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000005 /* PriceService.swift */; };
+		A1000006 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000006 /* Assets.xcassets */; };
+		A1000007 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000007 /* Preview Assets.xcassets */; };
 		A1000008 /* InfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000009 /* InfoView.swift */; };
 		A100000A /* PositionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000A /* PositionManager.swift */; };
 		A100000B /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000B /* NotificationManager.swift */; };
 		A100000C /* PositionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000C /* PositionsView.swift */; };
-		A1000006 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000006 /* Assets.xcassets */; };
-		A1000007 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000007 /* Preview Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -301,6 +301,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = DVKH6SYN25;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BTCSignal/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -328,6 +329,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = DVKH6SYN25;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BTCSignal/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
