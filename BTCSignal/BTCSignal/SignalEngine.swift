@@ -50,7 +50,7 @@ class SignalEngine {
         // 1. TREND (SMA Crossover + EMA confirmation)
         // -----------------------------------------------
         let smaSignal = sma7 > sma25
-        let emaSignal = ema12 > ema26
+        let emaSignal = (ema12.last ?? 0) > (ema26.last ?? 0)
         if smaSignal && emaSignal {
             buyScore += 3
             confluenceCount += 1
