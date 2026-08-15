@@ -176,7 +176,7 @@ struct ContentView: View {
                 }
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.3)) {
-                        Task { await refresh() }
+                        Concurrency.Task { await refresh() }
                     }
                 }) {
                     Image(systemName: "arrow.clockwise")
@@ -516,7 +516,7 @@ struct ContentView: View {
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.btcSubtext)
                 .multilineTextAlignment(.center)
-            Button(action: { Task { await refresh() } }) {
+            Button(action: { Concurrency.Task { await refresh() } }) {
                 HStack {
                     Image(systemName: "arrow.clockwise")
                     Text("Try Again")
