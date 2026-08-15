@@ -1,369 +1,583 @@
 import SwiftUI
 
+// MARK: - Color Palette
+
+extension Color {
+    static let btcOrange = Color(red: 1.0, green: 0.584, blue: 0.0)
+    static let btcDark = Color(red: 0.06, green: 0.06, blue: 0.1)
+    static let btcCard = Color(red: 0.1, green: 0.1, blue: 0.14)
+    static let btcGreen = Color(red: 0.18, green: 0.82, blue: 0.45)
+    static let btcRed = Color(red: 1.0, green: 0.32, blue: 0.32)
+    static let btcYellow = Color(red: 1.0, green: 0.82, blue: 0.2)
+    static let btcSubtext = Color(red: 0.55, green: 0.55, blue: 0.62)
+    static let btcDivider = Color(red: 0.18, green: 0.18, blue: 0.24)
+}
+
+// MARK: - Main View
+
 struct ContentView: View {
     @StateObject private var priceService = PriceService()
     @State private var signal: TradingSignal?
-    @State private var showDetails = false
     @State private var showInfo = false
+    @State private var animateSignal = false
+    @State private var lastRefresh: Date?
 
     private let engine = SignalEngine()
 
     var body: some View {
         NavigationStack {
             ZStack {
-                // Background
-                Color.black.ignoresSafeArea()
+                Color.btcDark.ignoresSafeArea()
 
                 ScrollView {
-                    VStack(spacing: 20) {
-                        headerSection
+                    VStack(spacing: 16) {
+                        headerView
 
                         if priceService.isLoading {
                             loadingView
                         } else if let error = priceService.errorMessage {
-                            errorView(error)
+                            errorCard(error)
                         } else {
-                            signalCard
-            priceChartView
-                            indicatorsSection
-                            reasonsSection
-                            disclaimerView
+                            if let signal = signal {
+                                signalHeroCard(signal)
+                                priceRow(signal)
+                                chartView
+                                indicatorGrid(signal)
+                                analysisCard(signal)
+                                disclaimerCard
+                            } else {
+                                noSignalView
+                            }
                         }
                     }
-                    .padding()
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 40)
                 }
             }
             .preferredColorScheme(.dark)
             .task { await refresh() }
             .refreshable { await refresh() }
-            .navigationTitle("")
-            .navigationBarHidden(true)
-            .sheet(isPresented: $showInfo) {
-                InfoView()
-            }
+            .sheet(isPresented: $showInfo) { InfoView() }
         }
     }
 
     // MARK: - Header
 
-    private var headerSection: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
+    private var headerView: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text("BTC Signal")
-                    .font(.largeTitle.bold())
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
                     .foregroundColor(.white)
-                Text("Bitcoin Trading Signals")
-                    .font(.subheadline)
-                    .foregroundColor(.gray)
+                Text("Technical Analysis")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.btcSubtext)
             }
             Spacer()
-            HStack(spacing: 16) {
+            HStack(spacing: 12) {
                 Button(action: { showInfo = true }) {
-                    Image(systemName: "info.circle")
-                        .font(.title2)
-                        .foregroundColor(.gray)
+                    Image(systemName: "info.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.btcSubtext)
                 }
-                Button(action: { Task { await refresh() } }) {
+                Button(action: {
+                    withAnimation(.spring(response: 0.3)) {
+                        Task { await refresh() }
+                    }
+                }) {
                     Image(systemName: "arrow.clockwise")
-                        .font(.title2)
-                        .foregroundColor(.orange)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.btcOrange)
                         .rotationEffect(.degrees(priceService.isLoading ? 360 : 0))
-                        .animation(priceService.isLoading ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: priceService.isLoading)
+                        .animation(priceService.isLoading ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .default, value: priceService.isLoading)
                 }
             }
         }
-        .padding(.top, 8)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
     }
 
-    // MARK: - Signal Card
+    // MARK: - Signal Hero Card
 
-    private var signalCard: some View {
-        VStack(spacing: 16) {
-            if let signal = signal {
-                // Big signal display
-                VStack(spacing: 8) {
-                    Text(signal.signal.emoji)
-                        .font(.system(size: 48))
-                    Text(signal.signal.rawValue)
-                        .font(.system(size: 32, weight: .heavy, design: .rounded))
+    private func signalHeroCard(_ signal: TradingSignal) -> some View {
+        VStack(spacing: 0) {
+            // Signal badge
+            VStack(spacing: 12) {
+                // Glowing indicator
+                ZStack {
+                    Circle()
+                        .fill(signalGlow(signal.signal))
+                        .frame(width: 80, height: 80)
+                        .blur(radius: 20)
+                        .opacity(animateSignal ? 0.6 : 0.3)
+                        .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: animateSignal)
+
+                    Circle()
+                        .fill(signalGlow(signal.signal))
+                        .frame(width: 56, height: 56)
+                        .opacity(0.15)
+
+                    Text(signalEmoji(signal.signal))
+                        .font(.system(size: 32))
+                }
+                .onAppear { animateSignal = true }
+
+                Text(signal.signal.rawValue)
+                    .font(.system(size: 26, weight: .heavy, design: .rounded))
+                    .foregroundColor(signalColor(signal.signal))
+                    .tracking(2)
+
+                // Confidence
+                HStack(spacing: 6) {
+                    Text("\(Int(signal.confidence))%")
+                        .font(.system(size: 15, weight: .bold, design: .monospaced))
                         .foregroundColor(signalColor(signal.signal))
-
-                    // Confidence bar
-                    VStack(spacing: 4) {
-                        Text("Confidence: \(Int(signal.confidence))%")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                Capsule()
-                                    .fill(Color.white.opacity(0.1))
-                                    .frame(height: 8)
-                                Capsule()
-                                    .fill(signalColor(signal.signal))
-                                    .frame(width: geo.size.width * (signal.confidence / 100), height: 8)
-                            }
-                        }
-                        .frame(height: 8)
-                    }
-                    .padding(.horizontal, 40)
+                    Text("confidence")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.btcSubtext)
                 }
-                .padding(.vertical, 20)
-
-                // Price info
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text("BTC Price")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                        Text("$\(formatPrice(signal.indicators.currentPrice))")
-                            .font(.title2.bold())
-                            .foregroundColor(.white)
-                    }
-                    Spacer()
-                    VStack(alignment: .trailing) {
-                        Text("24h Change")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                        Text("\(signal.indicators.priceChange24h >= 0 ? "+" : "")\(String(format: "%.2f", signal.indicators.priceChange24h))%")
-                            .font(.title2.bold())
-                            .foregroundColor(signal.indicators.priceChange24h >= 0 ? .green : .red)
-                    }
-                }
-                .padding(.horizontal)
-
-                Text("Updated \(signal.generatedAt.formatted(.dateTime.hour().minute()))")
-                    .font(.caption2)
-                    .foregroundColor(.gray)
             }
+            .padding(.vertical, 28)
+            .frame(maxWidth: .infinity)
+
+            // Confidence bar
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.06))
+                    Rectangle()
+                        .fill(
+                            LinearGradient(
+                                colors: [signalColor(signal.signal).opacity(0.6), signalColor(signal.signal)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: geo.size.width * (signal.confidence / 100))
+                }
+            }
+            .frame(height: 3)
         }
         .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.05))
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.btcCard)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(signalColor(signal.signal).opacity(0.15), lineWidth: 1)
         )
     }
 
-    // MARK: - Price Chart
+    // MARK: - Price Row
 
-    private var priceChartView: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("30-Day Price")
-                .font(.headline)
-                .foregroundColor(.white)
+    private func priceRow(_ signal: TradingSignal) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Bitcoin")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.btcSubtext)
+                Text("$\(formatPriceFull(signal.indicators.currentPrice))")
+                    .font(.system(size: 24, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 4) {
+                Text("24h")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.btcSubtext)
+                HStack(spacing: 4) {
+                    Image(systemName: signal.indicators.priceChange24h >= 0 ? "arrow.up.right" : "arrow.down.right")
+                        .font(.system(size: 12, weight: .bold))
+                    Text("\(signal.indicators.priceChange24h >= 0 ? "+" : "")\(String(format: "%.2f", signal.indicators.priceChange24h))%")
+                        .font(.system(size: 18, weight: .bold, design: .monospaced))
+                }
+                .foregroundColor(signal.indicators.priceChange24h >= 0 ? .btcGreen : .btcRed)
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.btcCard)
+        )
+    }
+
+    // MARK: - Chart
+
+    private var chartView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("30-Day Price")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Text("USD")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.btcSubtext)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.white.opacity(0.06)))
+            }
 
             let prices = priceService.prices.map { $0.price }
             if prices.count > 1, let minP = prices.min(), let maxP = prices.max() {
-                let range = maxP - minP
-                priceChartContent(prices: prices, minP: minP, range: range)
+                chartContent(prices: prices, minP: minP, range: maxP - minP)
             } else {
-                Text("No data")
-                    .foregroundColor(.gray)
-                    .frame(height: 180)
+                Text("No chart data")
+                    .foregroundColor(.btcSubtext)
+                    .frame(height: 160)
             }
         }
-        .padding()
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white.opacity(0.05))
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.btcCard)
         )
     }
 
-    private func priceChartContent(prices: [Double], minP: Double, range: Double) -> some View {
+    private func chartContent(prices: [Double], minP: Double, range: Double) -> some View {
         GeometryReader { geo in
-            let stepX = geo.size.width / CGFloat(prices.count - 1)
+            let padding: CGFloat = 4
+            let chartWidth = geo.size.width - padding * 2
+            let chartHeight = geo.size.height - padding * 2
+            let stepX = chartWidth / CGFloat(prices.count - 1)
+            let safeRange = range > 0 ? range : 1
 
             ZStack {
-                // Grid lines
-                ForEach(0..<5, id: \.self) { i in
-                    let y = geo.size.height * CGFloat(i) / 4
+                // Horizontal grid lines
+                ForEach(0..<4, id: \.self) { i in
+                    let y = padding + chartHeight * CGFloat(i) / 3
                     Path { p in
-                        p.move(to: CGPoint(x: 0, y: y))
-                        p.addLine(to: CGPoint(x: geo.size.width, y: y))
+                        p.move(to: CGPoint(x: padding, y: y))
+                        p.addLine(to: CGPoint(x: geo.size.width - padding, y: y))
                     }
-                    .stroke(Color.white.opacity(0.05), lineWidth: 1)
+                    .stroke(Color.white.opacity(0.04), lineWidth: 0.5)
                 }
 
-                // Price line
+                // Gradient fill
                 Path { p in
                     for (i, price) in prices.enumerated() {
-                        let x = CGFloat(i) * stepX
-                        let y = geo.size.height - CGFloat((price - minP) / range) * geo.size.height
+                        let x = padding + CGFloat(i) * stepX
+                        let y = padding + chartHeight - CGFloat((price - minP) / safeRange) * chartHeight
+                        if i == 0 { p.move(to: CGPoint(x: x, y: geo.size.height)) }
+                        p.addLine(to: CGPoint(x: x, y: y))
+                    }
+                    p.addLine(to: CGPoint(x: padding + CGFloat(prices.count - 1) * stepX, y: geo.size.height))
+                    p.closeSubpath()
+                }
+                .fill(
+                    LinearGradient(
+                        colors: [Color.btcOrange.opacity(0.2), Color.btcOrange.opacity(0.0)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+
+                // Line
+                Path { p in
+                    for (i, price) in prices.enumerated() {
+                        let x = padding + CGFloat(i) * stepX
+                        let y = padding + chartHeight - CGFloat((price - minP) / safeRange) * chartHeight
                         if i == 0 { p.move(to: CGPoint(x: x, y: y)) }
                         else { p.addLine(to: CGPoint(x: x, y: y)) }
                     }
                 }
                 .stroke(
-                    LinearGradient(colors: [.orange, .yellow], startPoint: .leading, endPoint: .trailing),
-                    style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
+                    LinearGradient(
+                        colors: [Color.btcOrange.opacity(0.7), Color.btcOrange],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ),
+                    style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
                 )
 
-                // Fill under line
-                Path { p in
-                    for (i, price) in prices.enumerated() {
-                        let x = CGFloat(i) * stepX
-                        let y = geo.size.height - CGFloat((price - minP) / range) * geo.size.height
-                        if i == 0 { p.move(to: CGPoint(x: x, y: geo.size.height)) }
-                        p.addLine(to: CGPoint(x: x, y: y))
-                    }
-                    p.addLine(to: CGPoint(x: CGFloat(prices.count - 1) * stepX, y: geo.size.height))
-                    p.closeSubpath()
-                }
-                .fill(
-                    LinearGradient(colors: [.orange.opacity(0.3), .clear], startPoint: .top, endPoint: .bottom)
-                )
+                // Current price dot + label
+                let lastX = padding + CGFloat(prices.count - 1) * stepX
+                let lastY = padding + chartHeight - CGFloat((prices.last! - minP) / safeRange) * chartHeight
 
-                // Current price dot
-                let lastX = CGFloat(prices.count - 1) * stepX
-                let lastY = geo.size.height - CGFloat((prices.last! - minP) / range) * geo.size.height
+                // Glow behind dot
                 Circle()
-                    .fill(Color.orange)
-                    .frame(width: 10, height: 10)
+                    .fill(Color.btcOrange.opacity(0.3))
+                    .frame(width: 16, height: 16)
                     .position(x: lastX, y: lastY)
+
+                Circle()
+                    .fill(Color.btcOrange)
+                    .frame(width: 7, height: 7)
+                    .position(x: lastX, y: lastY)
+
+                // Min/Max labels
+                Text(formatChartPrice(minP))
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.btcSubtext.opacity(0.6))
+                    .position(x: geo.size.width / 2, y: geo.size.height - 6)
+
+                Text(formatChartPrice(minP + range))
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.btcSubtext.opacity(0.6))
+                    .position(x: geo.size.width / 2, y: 8)
             }
         }
-        .frame(height: 180)
+        .frame(height: 160)
     }
 
-    // MARK: - Indicators
+    // MARK: - Indicator Grid
 
-    private var indicatorsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Technical Indicators")
-                .font(.headline)
+    private func indicatorGrid(_ signal: TradingSignal) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Indicators")
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundColor(.white)
 
-            if let signal = signal {
-                let ind = signal.indicators
-                HStack(spacing: 12) {
-                    indicatorBox("SMA 7", value: "$\(formatPrice(ind.sma7))", bullish: ind.sma7 > ind.sma25)
-                    indicatorBox("SMA 25", value: "$\(formatPrice(ind.sma25))", bullish: ind.sma25 < ind.sma7)
-                }
-                HStack(spacing: 12) {
-                    indicatorBox("RSI (14)", value: String(format: "%.1f", ind.rsi),
-                                 bullish: ind.rsi < 50, isRSI: true)
-                    indicatorBox("MACD", value: ind.macdLine > ind.signalLine ? "Bullish" : "Bearish",
-                                 bullish: ind.macdLine > ind.signalLine)
-                }
-            }
-        }
-    }
-
-    private func indicatorBox(_ name: String, value: String, bullish: Bool, isRSI: Bool = false) -> some View {
-        VStack(spacing: 6) {
-            Text(name)
-                .font(.caption)
-                .foregroundColor(.gray)
-            Text(value)
-                .font(.system(.body, design: .rounded).bold())
-                .foregroundColor(.white)
-            Text(bullish ? "Bullish" : "Bearish")
-                .font(.caption2.bold())
-                .foregroundColor(bullish ? .green : .red)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 2)
-                .background(
-                    Capsule().fill(bullish ? Color.green.opacity(0.2) : Color.red.opacity(0.2))
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: 10),
+                GridItem(.flexible(), spacing: 10)
+            ], spacing: 10) {
+                indicatorTile(
+                    name: "SMA 7",
+                    value: formatChartPrice(signal.indicators.sma7),
+                    trend: signal.indicators.sma7 > signal.indicators.sma25 ? .up : .down
                 )
+                indicatorTile(
+                    name: "SMA 25",
+                    value: formatChartPrice(signal.indicators.sma25),
+                    trend: signal.indicators.sma25 < signal.indicators.sma7 ? .up : .down
+                )
+                indicatorTile(
+                    name: "RSI (14)",
+                    value: String(format: "%.1f", signal.indicators.rsi),
+                    trend: signal.indicators.rsi < 50 ? .up : .down,
+                    subtitle: rsiLabel(signal.indicators.rsi)
+                )
+                indicatorTile(
+                    name: "MACD",
+                    value: signal.indicators.macdLine > signal.indicators.signalLine ? "Bullish" : "Bearish",
+                    trend: signal.indicators.macdLine > signal.indicators.signalLine ? .up : .down
+                )
+            }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
+    }
+
+    private func indicatorTile(name: String, value: String, trend: TrendDirection, subtitle: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(name)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.btcSubtext)
+                Spacer()
+                Image(systemName: trend == .up ? "arrow.up" : "arrow.down")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(trend == .up ? .btcGreen : .btcRed)
+            }
+
+            Text(value)
+                .font(.system(size: 16, weight: .bold, design: .monospaced))
+                .foregroundColor(.white)
+
+            if let subtitle = subtitle {
+                Text(subtitle)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(trend == .up ? .btcGreen : .btcRed)
+            }
+        }
+        .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white.opacity(0.05))
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.btcCard)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.04), lineWidth: 0.5)
         )
     }
 
-    // MARK: - Reasons
+    // MARK: - Analysis Card
 
-    private var reasonsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Analysis")
-                .font(.headline)
-                .foregroundColor(.white)
+    private func analysisCard(_ signal: TradingSignal) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Analysis")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Text("\(signal.reasons.count) factors")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.btcSubtext)
+            }
 
-            if let signal = signal {
-                ForEach(signal.reasons, id: \.self) { reason in
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "circle.fill")
-                            .font(.system(size: 6))
-                            .foregroundColor(.orange)
-                            .padding(.top, 6)
-                        Text(reason)
-                            .font(.subheadline)
-                            .foregroundColor(.white.opacity(0.8))
-                    }
+            ForEach(Array(signal.reasons.enumerated()), id: \.offset) { index, reason in
+                HStack(alignment: .top, spacing: 10) {
+                    // Numbered bullet
+                    Text("\(index + 1)")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(.btcOrange)
+                        .frame(width: 20, height: 20)
+                        .background(Circle().fill(Color.btcOrange.opacity(0.12)))
+
+                    Text(reason)
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(.white.opacity(0.85))
+                        .lineSpacing(3)
+                }
+
+                if index < signal.reasons.count - 1 {
+                    Divider().background(Color.btcDivider).padding(.leading, 30)
                 }
             }
         }
-        .padding()
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.btcCard)
+        )
+    }
+
+    // MARK: - States
+
+    private var loadingView: some View {
+        VStack(spacing: 20) {
+            ProgressView()
+                .tint(.btcOrange)
+                .scaleEffect(1.3)
+            Text("Fetching market data...")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(.btcSubtext)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 80)
+    }
+
+    private func errorCard(_ message: String) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.system(size: 40))
+                .foregroundColor(.btcRed)
+            Text(message)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.btcSubtext)
+                .multilineTextAlignment(.center)
+            Button(action: { Task { await refresh() } }) {
+                HStack {
+                    Image(systemName: "arrow.clockwise")
+                    Text("Try Again")
+                }
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 10)
+                .background(Capsule().fill(Color.btcOrange))
+            }
+        }
+        .padding(32)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.btcCard)
+        )
+    }
+
+    private var noSignalView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "chart.bar.xaxis")
+                .font(.system(size: 40))
+                .foregroundColor(.btcSubtext)
+            Text("Not enough data")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white)
+            Text("Need at least 20 days of price history to generate signals.")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.btcSubtext)
+                .multilineTextAlignment(.center)
+        }
+        .padding(40)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.btcCard)
+        )
+    }
+
+    private var disclaimerCard: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12))
+                .foregroundColor(.btcYellow.opacity(0.7))
+            Text("Not financial advice. Based on technical indicators only. Do your own research.")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.btcSubtext.opacity(0.6))
+                .lineSpacing(2)
+        }
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white.opacity(0.05))
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.btcYellow.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.btcYellow.opacity(0.1), lineWidth: 0.5)
         )
     }
 
     // MARK: - Helpers
 
-    private var loadingView: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-                .tint(.orange)
-                .scaleEffect(1.5)
-            Text("Fetching Bitcoin data...")
-                .foregroundColor(.gray)
-        }
-        .frame(height: 300)
-    }
-
-    private func errorView(_ message: String) -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: "wifi.exclamationmark")
-                .font(.system(size: 48))
-                .foregroundColor(.red)
-            Text(message)
-                .foregroundColor(.gray)
-                .multilineTextAlignment(.center)
-            Button("Retry") { Task { await refresh() } }
-                .buttonStyle(.borderedProminent)
-                .tint(.orange)
-        }
-        .frame(height: 300)
-    }
-
-    private var disclaimerView: some View {
-        Text("⚠️ Not financial advice. Signals are based on technical indicators only. Always do your own research.")
-            .font(.caption2)
-            .foregroundColor(.gray.opacity(0.7))
-            .multilineTextAlignment(.center)
-            .padding(.top, 8)
-            .padding(.bottom, 40)
-    }
-
     private func refresh() async {
         await priceService.fetchPrices()
         if !priceService.prices.isEmpty {
             signal = engine.analyze(prices: priceService.prices)
+            lastRefresh = Date()
         }
     }
 
-    private func signalColor(_ signal: SignalType) -> Color {
-        switch signal {
-        case .strongBuy, .buy: return .green
-        case .hold: return .yellow
-        case .sell, .strongSell: return .red
+    private func signalColor(_ type: SignalType) -> Color {
+        switch type {
+        case .strongBuy, .buy: return .btcGreen
+        case .hold: return .btcYellow
+        case .sell, .strongSell: return .btcRed
         }
     }
 
-    private func formatPrice(_ price: Double) -> String {
-        if price >= 1000 {
-            return String(format: "%.0f", price)
+    private func signalGlow(_ type: SignalType) -> Color {
+        switch type {
+        case .strongBuy, .buy: return .btcGreen
+        case .hold: return .btcYellow
+        case .sell, .strongSell: return .btcRed
         }
-        return String(format: "%.2f", price)
     }
+
+    private func signalEmoji(_ type: SignalType) -> String {
+        switch type {
+        case .strongBuy: return "🚀"
+        case .buy: return "📈"
+        case .hold: return "⏸"
+        case .sell: return "📉"
+        case .strongSell: return "⚠️"
+        }
+    }
+
+    private func rsiLabel(_ rsi: Double) -> String {
+        if rsi < 30 { return "Oversold" }
+        if rsi < 40 { return "Near oversold" }
+        if rsi > 70 { return "Overbought" }
+        if rsi > 60 { return "Near overbought" }
+        return "Neutral"
+    }
+
+    private func formatPriceFull(_ price: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 0
+        return formatter.string(from: NSNumber(value: price)) ?? String(format: "%.0f", price)
+    }
+
+    private func formatChartPrice(_ price: Double) -> String {
+        if price >= 10000 { return "$\(Int(price / 1000))k" }
+        if price >= 1000 { return "$\(String(format: "%.1f", price / 1000))k" }
+        return "$\(String(format: "%.0f", price))"
+    }
+}
+
+// MARK: - Supporting Types
+
+enum TrendDirection {
+    case up, down
 }
 
 #Preview {

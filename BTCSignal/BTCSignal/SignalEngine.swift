@@ -4,19 +4,28 @@ import Foundation
 
 class SignalEngine {
 
+    /// Minimum data points needed for all indicators
+    var minimumDataPoints: Int { 20 }
+
     /// Generate a trading signal from historical price data
     func analyze(prices: [PricePoint]) -> TradingSignal? {
-        guard prices.count >= 26 else { return nil }
+        guard prices.count >= minimumDataPoints else { return nil }
 
         let closes = prices.map { $0.price }
-        let sma7  = calculateSMA(closes: closes, period: 7)
-        let sma25 = calculateSMA(closes: closes, period: 25)
-        let rsi   = calculateRSI(closes: closes, period: 14)
-        let (macdLine, signalLine) = calculateMACD(closes: closes)
-
         let currentPrice = closes.last!
         let previousPrice = closes[closes.count - 2]
         let priceChange24h = ((currentPrice - previousPrice) / previousPrice) * 100
+
+        // SMA — always works if we have enough points
+        let sma7  = calculateSMA(closes: closes, period: min(7, closes.count))
+        let sma25 = calculateSMA(closes: closes, period: min(25, closes.count))
+
+        // RSI — works with any data length
+        let rsiPeriod = min(14, closes.count - 1)
+        let rsi = calculateRSI(closes: closes, period: rsiPeriod)
+
+        // MACD — use shorter periods if data is limited
+        let (macdLine, signalLine) = calculateMACD(closes: closes)
 
         let indicators = IndicatorValues(
             sma7: sma7,
@@ -36,53 +45,69 @@ class SignalEngine {
         // 1. SMA Crossover
         if sma7 > sma25 {
             buyScore += 2
-            reasons.append("SMA7 above SMA25 (bullish)")
+            reasons.append("Short-term average (\(formatUSD(sma7))) above long-term (\(formatUSD(sma25))) — uptrend")
         } else {
             sellScore += 2
-            reasons.append("SMA7 below SMA25 (bearish)")
+            reasons.append("Short-term average (\(formatUSD(sma7))) below long-term (\(formatUSD(sma25))) — downtrend")
         }
 
         // 2. RSI
         if rsi < 30 {
             buyScore += 2
-            reasons.append("RSI \(Int(rsi)) — oversold territory")
+            reasons.append("RSI at \(Int(rsi)) — deeply oversold, potential bounce")
         } else if rsi < 40 {
             buyScore += 1
-            reasons.append("RSI \(Int(rsi)) — approaching oversold")
+            reasons.append("RSI at \(Int(rsi)) — approaching oversold territory")
         } else if rsi > 70 {
             sellScore += 2
-            reasons.append("RSI \(Int(rsi)) — overbought territory")
+            reasons.append("RSI at \(Int(rsi)) — overbought, may pull back")
         } else if rsi > 60 {
             sellScore += 1
-            reasons.append("RSI \(Int(rsi)) — approaching overbought")
+            reasons.append("RSI at \(Int(rsi)) — approaching overbought")
         } else {
-            reasons.append("RSI \(Int(rsi)) — neutral zone")
+            reasons.append("RSI at \(Int(rsi)) — neutral zone, no strong signal")
         }
 
-        // 3. MACD
-        if macdLine > signalLine {
-            buyScore += 2
-            reasons.append("MACD above signal line (bullish)")
+        // 3. MACD (only if we have valid values)
+        if !macdLine.isNaN && !signalLine.isNaN {
+            if macdLine > signalLine {
+                buyScore += 2
+                reasons.append("MACD bullish crossover — momentum shifting up")
+            } else {
+                sellScore += 2
+                reasons.append("MACD bearish crossover — momentum shifting down")
+            }
         } else {
-            sellScore += 2
-            reasons.append("MACD below signal line (bearish)")
+            reasons.append("MACD — insufficient data for reliable reading")
         }
 
-        // 4. Price momentum (last 3 candles direction)
-        let recentPrices = Array(closes.suffix(4))
+        // 4. Price momentum (last 5 candles)
+        let lookback = min(5, closes.count - 1)
+        let recentPrices = Array(closes.suffix(lookback + 1))
         let momentum = recentPrices.last! - recentPrices.first!
+        let momentumPct = (momentum / recentPrices.first!) * 100
         if momentum > 0 {
             buyScore += 1
-            reasons.append("Positive short-term momentum")
+            reasons.append("Short-term momentum +\(String(format: "%.1f", momentumPct))% — rising")
         } else {
             sellScore += 1
-            reasons.append("Negative short-term momentum")
+            reasons.append("Short-term momentum \(String(format: "%.1f", momentumPct))% — falling")
+        }
+
+        // 5. Price vs SMA25 (mean reversion signal)
+        let priceVsSMA = ((currentPrice - sma25) / sma25) * 100
+        if priceVsSMA < -5 {
+            buyScore += 1
+            reasons.append("Price \(String(format: "%.1f", abs(priceVsSMA)))% below average — potential value")
+        } else if priceVsSMA > 5 {
+            sellScore += 1
+            reasons.append("Price \(String(format: "%.1f", priceVsSMA))% above average — extended")
         }
 
         // Determine signal
         let totalScore = buyScore + sellScore
         let netScore = Double(buyScore - sellScore)
-        let confidence = (abs(netScore) / Double(totalScore)) * 100
+        let confidence = totalScore > 0 ? (abs(netScore) / Double(totalScore)) * 100 : 50
 
         let signal: SignalType
         if netScore >= 5 {
@@ -109,22 +134,21 @@ class SignalEngine {
     // MARK: - Indicators
 
     private func calculateSMA(closes: [Double], period: Int) -> Double {
+        guard period > 0, closes.count >= period else { return closes.last ?? 0 }
         let slice = Array(closes.suffix(period))
         return slice.reduce(0, +) / Double(slice.count)
     }
 
     private func calculateRSI(closes: [Double], period: Int) -> Double {
+        guard period > 0, closes.count > period else { return 50 }
         let slice = Array(closes.suffix(period + 1))
         var gains = 0.0
         var losses = 0.0
 
         for i in 1..<slice.count {
             let change = slice[i] - slice[i - 1]
-            if change > 0 {
-                gains += change
-            } else {
-                losses += abs(change)
-            }
+            if change > 0 { gains += change }
+            else { losses += abs(change) }
         }
 
         let avgGain = gains / Double(period)
@@ -136,10 +160,11 @@ class SignalEngine {
     }
 
     private func calculateEMA(closes: [Double], period: Int) -> [Double] {
+        guard closes.count >= period, period > 0 else { return [] }
         let multiplier = 2.0 / Double(period + 1)
         var ema: [Double] = []
 
-        // First EMA = SMA
+        // First EMA = SMA of first `period` values
         let firstSMA = Array(closes.prefix(period)).reduce(0, +) / Double(period)
         ema.append(firstSMA)
 
@@ -151,16 +176,34 @@ class SignalEngine {
     }
 
     private func calculateMACD(closes: [Double]) -> (Double, Double) {
-        let ema12 = calculateEMA(closes: closes, period: 12)
-        let ema26 = calculateEMA(closes: closes, period: 26)
+        // Adaptive: use shorter periods if data is limited
+        let fastPeriod = min(12, closes.count / 3)
+        let slowPeriod = min(26, closes.count / 2)
+        let signalPeriod = min(9, max(3, closes.count / 4))
 
-        // Align lengths
-        let offset = ema12.count - ema26.count
-        let aligned12 = Array(ema12.suffix(ema26.count))
+        guard fastPeriod > 0, slowPeriod > 0, closes.count >= slowPeriod else {
+            return (.nan, .nan)
+        }
 
-        let macdLine = zip(aligned12, ema26).map { $0.0 - $0.1 }
-        let signalLine = calculateEMA(closes: macdLine, period: 9)
+        let emaFast = calculateEMA(closes: closes, period: fastPeriod)
+        let emaSlow = calculateEMA(closes: closes, period: slowPeriod)
 
-        return (macdLine.last ?? 0, signalLine.last ?? 0)
+        guard !emaFast.isEmpty, !emaSlow.isEmpty else { return (.nan, .nan) }
+
+        // Align to shorter
+        let count = min(emaFast.count, emaSlow.count)
+        let alignedFast = Array(emaFast.suffix(count))
+        let alignedSlow = Array(emaSlow.suffix(count))
+
+        let macdLine = zip(alignedFast, alignedSlow).map { $0.0 - $0.1 }
+        guard macdLine.count >= signalPeriod else { return (macdLine.last ?? 0, .nan) }
+
+        let signalArr = calculateEMA(closes: macdLine, period: signalPeriod)
+        return (macdLine.last ?? 0, signalArr.last ?? .nan)
+    }
+
+    private func formatUSD(_ value: Double) -> String {
+        if value >= 1000 { return "$\(Int(value))" }
+        return "$\(String(format: "%.2f", value))"
     }
 }
