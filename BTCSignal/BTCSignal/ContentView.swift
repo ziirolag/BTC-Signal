@@ -24,7 +24,7 @@ struct ContentView: View {
                             errorView(error)
                         } else {
                             signalCard
-                            priceChart
+            priceChartView
                             indicatorsSection
                             reasonsSection
                             disclaimerView
@@ -146,80 +146,85 @@ struct ContentView: View {
         )
     }
 
-    // MARK: - Price Chart (simplified)
+    // MARK: - Price Chart
 
-    private var priceChart: some View {
+    private var priceChartView: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("30-Day Price")
                 .font(.headline)
                 .foregroundColor(.white)
 
-            GeometryReader { geo in
-                let prices = priceService.prices.map { $0.price }
-                guard let minP = prices.min(), let maxP = prices.max(), prices.count > 1 else {
-                    Text("No data").foregroundColor(.gray)
-                    return
-                }
-
+            let prices = priceService.prices.map { $0.price }
+            if prices.count > 1, let minP = prices.min(), let maxP = prices.max() {
                 let range = maxP - minP
-                let stepX = geo.size.width / CGFloat(prices.count - 1)
-
-                ZStack {
-                    // Grid lines
-                    ForEach(0..<5) { i in
-                        let y = geo.size.height * CGFloat(i) / 4
-                        Path { p in
-                            p.move(to: CGPoint(x: 0, y: y))
-                            p.addLine(to: CGPoint(x: geo.size.width, y: y))
-                        }
-                        .stroke(Color.white.opacity(0.05), lineWidth: 1)
-                    }
-
-                    // Price line
-                    Path { p in
-                        for (i, price) in prices.enumerated() {
-                            let x = CGFloat(i) * stepX
-                            let y = geo.size.height - CGFloat((price - minP) / range) * geo.size.height
-                            if i == 0 { p.move(to: CGPoint(x: x, y: y)) }
-                            else { p.addLine(to: CGPoint(x: x, y: y)) }
-                        }
-                    }
-                    .stroke(
-                        LinearGradient(colors: [.orange, .yellow], startPoint: .leading, endPoint: .trailing),
-                        style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
-                    )
-
-                    // Fill under line
-                    Path { p in
-                        for (i, price) in prices.enumerated() {
-                            let x = CGFloat(i) * stepX
-                            let y = geo.size.height - CGFloat((price - minP) / range) * geo.size.height
-                            if i == 0 { p.move(to: CGPoint(x: x, y: geo.size.height)) }
-                            p.addLine(to: CGPoint(x: x, y: y))
-                        }
-                        p.addLine(to: CGPoint(x: CGFloat(prices.count - 1) * stepX, y: geo.size.height))
-                        p.closeSubpath()
-                    }
-                    .fill(
-                        LinearGradient(colors: [.orange.opacity(0.3), .clear], startPoint: .top, endPoint: .bottom)
-                    )
-
-                    // Current price dot
-                    let lastX = CGFloat(prices.count - 1) * stepX
-                    let lastY = geo.size.height - CGFloat((prices.last! - minP) / range) * geo.size.height
-                    Circle()
-                        .fill(Color.orange)
-                        .frame(width: 10, height: 10)
-                        .position(x: lastX, y: lastY)
-                }
+                priceChartContent(prices: prices, minP: minP, range: range)
+            } else {
+                Text("No data")
+                    .foregroundColor(.gray)
+                    .frame(height: 180)
             }
-            .frame(height: 180)
         }
         .padding()
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color.white.opacity(0.05))
         )
+    }
+
+    private func priceChartContent(prices: [Double], minP: Double, range: Double) -> some View {
+        GeometryReader { geo in
+            let stepX = geo.size.width / CGFloat(prices.count - 1)
+
+            ZStack {
+                // Grid lines
+                ForEach(0..<5, id: \.self) { i in
+                    let y = geo.size.height * CGFloat(i) / 4
+                    Path { p in
+                        p.move(to: CGPoint(x: 0, y: y))
+                        p.addLine(to: CGPoint(x: geo.size.width, y: y))
+                    }
+                    .stroke(Color.white.opacity(0.05), lineWidth: 1)
+                }
+
+                // Price line
+                Path { p in
+                    for (i, price) in prices.enumerated() {
+                        let x = CGFloat(i) * stepX
+                        let y = geo.size.height - CGFloat((price - minP) / range) * geo.size.height
+                        if i == 0 { p.move(to: CGPoint(x: x, y: y)) }
+                        else { p.addLine(to: CGPoint(x: x, y: y)) }
+                    }
+                }
+                .stroke(
+                    LinearGradient(colors: [.orange, .yellow], startPoint: .leading, endPoint: .trailing),
+                    style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
+                )
+
+                // Fill under line
+                Path { p in
+                    for (i, price) in prices.enumerated() {
+                        let x = CGFloat(i) * stepX
+                        let y = geo.size.height - CGFloat((price - minP) / range) * geo.size.height
+                        if i == 0 { p.move(to: CGPoint(x: x, y: geo.size.height)) }
+                        p.addLine(to: CGPoint(x: x, y: y))
+                    }
+                    p.addLine(to: CGPoint(x: CGFloat(prices.count - 1) * stepX, y: geo.size.height))
+                    p.closeSubpath()
+                }
+                .fill(
+                    LinearGradient(colors: [.orange.opacity(0.3), .clear], startPoint: .top, endPoint: .bottom)
+                )
+
+                // Current price dot
+                let lastX = CGFloat(prices.count - 1) * stepX
+                let lastY = geo.size.height - CGFloat((prices.last! - minP) / range) * geo.size.height
+                Circle()
+                    .fill(Color.orange)
+                    .frame(width: 10, height: 10)
+                    .position(x: lastX, y: lastY)
+            }
+        }
+        .frame(height: 180)
     }
 
     // MARK: - Indicators
