@@ -34,6 +34,10 @@ struct ContentView: View {
         Task { await refresh() }
     }
 
+    private func refreshTask() {
+        Task { await refresh() }
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
