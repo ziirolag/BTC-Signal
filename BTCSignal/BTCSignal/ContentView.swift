@@ -71,6 +71,7 @@ struct ContentView: View {
                         .animation(priceService.isLoading ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: priceService.isLoading)
                 }
             }
+        }
         .padding(.top, 8)
     }
 
