@@ -1,13 +1,11 @@
 import Foundation
 
-// MARK: - Technical Analysis Engine
+// MARK: - Technical Analysis Engine v2
 
 class SignalEngine {
 
-    /// Minimum data points needed for all indicators
-    var minimumDataPoints: Int { 20 }
+    var minimumDataPoints: Int { 26 }
 
-    /// Generate a trading signal from historical price data
     func analyze(prices: [PricePoint]) -> TradingSignal? {
         guard prices.count >= minimumDataPoints else { return nil }
 
@@ -16,16 +14,20 @@ class SignalEngine {
         let previousPrice = closes[closes.count - 2]
         let priceChange24h = ((currentPrice - previousPrice) / previousPrice) * 100
 
-        // SMA — always works if we have enough points
-        let sma7  = calculateSMA(closes: closes, period: min(7, closes.count))
-        let sma25 = calculateSMA(closes: closes, period: min(25, closes.count))
+        // === INDICATOR CALCULATIONS ===
 
-        // RSI — works with any data length
-        let rsiPeriod = min(14, closes.count - 1)
-        let rsi = calculateRSI(closes: closes, period: rsiPeriod)
-
-        // MACD — use shorter periods if data is limited
-        let (macdLine, signalLine) = calculateMACD(closes: closes)
+        let sma7  = calcSMA(closes, 7)
+        let sma25 = calcSMA(closes, 25)
+        let ema12 = calcEMA(closes, 12)
+        let ema26 = calcEMA(closes, 26)
+        let rsi = calcRSI(closes, 14)
+        let (macdLine, signalLine, histogram) = calcMACD(closes)
+        let (stochK, stochD) = calcStochastic(closes, kPeriod: 14, dPeriod: 3)
+        let (bbUpper, bbMiddle, bbLower) = calcBollingerBands(closes, period: 20, stdDev: 2.0)
+        let atr = calcATR(closes, period: 14)
+        let adx = calcADX(closes, period: 14)
+        let vwap = calcVWAP(closes)
+        let (support, resistance) = findSupportResistance(closes)
 
         let indicators = IndicatorValues(
             sma7: sma7,
@@ -37,86 +39,230 @@ class SignalEngine {
             priceChange24h: priceChange24h
         )
 
-        // Score each indicator
-        var buyScore = 0
-        var sellScore = 0
+        // === SCORING ENGINE ===
+
+        var buyScore: Double = 0
+        var sellScore: Double = 0
         var reasons: [String] = []
+        var confluenceCount = 0  // how many independent systems agree
 
-        // 1. SMA Crossover
-        if sma7 > sma25 {
-            buyScore += 2
-            reasons.append("Short-term average (\(formatUSD(sma7))) above long-term (\(formatUSD(sma25))) — uptrend")
-        } else {
-            sellScore += 2
-            reasons.append("Short-term average (\(formatUSD(sma7))) below long-term (\(formatUSD(sma25))) — downtrend")
-        }
-
-        // 2. RSI
-        if rsi < 30 {
-            buyScore += 2
-            reasons.append("RSI at \(Int(rsi)) — deeply oversold, potential bounce")
-        } else if rsi < 40 {
+        // -----------------------------------------------
+        // 1. TREND (SMA Crossover + EMA confirmation)
+        // -----------------------------------------------
+        let smaSignal = sma7 > sma25
+        let emaSignal = ema12 > ema26
+        if smaSignal && emaSignal {
+            buyScore += 3
+            confluenceCount += 1
+            reasons.append("Both SMA and EMA confirm uptrend — strong trend alignment")
+        } else if !smaSignal && !emaSignal {
+            sellScore += 3
+            confluenceCount += 1
+            reasons.append("Both SMA and EMA confirm downtrend — strong bearish alignment")
+        } else if smaSignal {
             buyScore += 1
-            reasons.append("RSI at \(Int(rsi)) — approaching oversold territory")
-        } else if rsi > 70 {
-            sellScore += 2
-            reasons.append("RSI at \(Int(rsi)) — overbought, may pull back")
-        } else if rsi > 60 {
-            sellScore += 1
-            reasons.append("RSI at \(Int(rsi)) — approaching overbought")
+            reasons.append("SMA bullish but EMA lagging — weak uptrend")
         } else {
-            reasons.append("RSI at \(Int(rsi)) — neutral zone, no strong signal")
+            sellScore += 1
+            reasons.append("SMA bearish but EMA lagging — weak downtrend")
         }
 
-        // 3. MACD (only if we have valid values)
-        if !macdLine.isNaN && !signalLine.isNaN {
-            if macdLine > signalLine {
-                buyScore += 2
-                reasons.append("MACD bullish crossover — momentum shifting up")
+        // Price position relative to MAs
+        let priceVsSMA25 = ((currentPrice - sma25) / sma25) * 100
+        if priceVsSMA25 > 3 && priceVsSMA25 < 10 {
+            buyScore += 1
+            reasons.append("Price \(String(format: "%.1f", priceVsSMA25))% above SMA25 — healthy uptrend")
+        } else if priceVsSMA25 > 10 {
+            sellScore += 1.5
+            reasons.append("Price \(String(format: "%.1f", priceVsSMA25))% above SMA25 — stretched, may revert")
+        } else if priceVsSMA25 < -3 && priceVsSMA25 > -10 {
+            sellScore += 1
+            reasons.append("Price \(String(format: "%.1f", priceVsSMA25))% below SMA25 — bearish")
+        } else if priceVsSMA25 < -10 {
+            buyScore += 1.5
+            reasons.append("Price \(String(format: "%.1f", priceVsSMA25))% below SMA25 — oversold, potential bounce")
+        }
+
+        // -----------------------------------------------
+        // 2. MOMENTUM (RSI + Stochastic)
+        // -----------------------------------------------
+        let rsiBuy = rsi < 30
+        let rsiSell = rsi > 70
+        let stochBuy = stochK < 20 && stochK > stochD  // oversold + turning up
+        let stochSell = stochK > 80 && stochK < stochD  // overbought + turning down
+
+        if rsiBuy && stochBuy {
+            buyScore += 3
+            confluenceCount += 1
+            reasons.append("RSI \(Int(rsi)) + Stochastic both oversold — high-probability reversal zone")
+        } else if rsiSell && stochSell {
+            sellScore += 3
+            confluenceCount += 1
+            reasons.append("RSI \(Int(rsi)) + Stochastic both overbought — high-probability pullback zone")
+        } else if rsiBuy {
+            buyScore += 2
+            reasons.append("RSI \(Int(rsi)) — oversold, waiting for Stochastic confirmation")
+        } else if rsiSell {
+            sellScore += 2
+            reasons.append("RSI \(Int(rsi)) — overbought, waiting for Stochastic confirmation")
+        } else if rsi < 45 {
+            buyScore += 0.5
+            reasons.append("RSI \(Int(rsi)) — leaning slightly bullish")
+        } else if rsi > 55 {
+            sellScore += 0.5
+            reasons.append("RSI \(Int(rsi)) — leaning slightly bearish")
+        } else {
+            reasons.append("RSI \(Int(rsi)) — neutral, no edge")
+        }
+
+        // Stochastic crossover
+        if stochK > stochD && stochK < 30 {
+            buyScore += 1
+            reasons.append("Stochastic bullish crossover in oversold zone")
+        } else if stochK < stochD && stochK > 70 {
+            sellScore += 1
+            reasons.append("Stochastic bearish crossover in overbought zone")
+        }
+
+        // -----------------------------------------------
+        // 3. MACD (Line + Signal + Histogram momentum)
+        // -----------------------------------------------
+        if !macdLine.isNaN && !signalLine.isNaN && !histogram.isNaN {
+            let macdBullish = macdLine > signalLine
+            let histogramGrowing = histogram > 0
+
+            if macdBullish && histogramGrowing {
+                buyScore += 2.5
+                confluenceCount += 1
+                reasons.append("MACD bullish with growing histogram — accelerating momentum")
+            } else if !macdBullish && !histogramGrowing {
+                sellScore += 2.5
+                confluenceCount += 1
+                reasons.append("MACD bearish with declining histogram — momentum fading")
+            } else if macdBullish {
+                buyScore += 1.5
+                reasons.append("MACD above signal but histogram flat — momentum slowing")
             } else {
-                sellScore += 2
-                reasons.append("MACD bearish crossover — momentum shifting down")
+                sellScore += 1.5
+                reasons.append("MACD below signal but histogram flat — selling pressure easing")
             }
+
+            // MACD zero-line cross (strong signal)
+            if macdLine > 0 && signalLine > 0 {
+                buyScore += 1
+                reasons.append("MACD above zero line — trend is bullish on larger timeframe")
+            } else if macdLine < 0 && signalLine < 0 {
+                sellScore += 1
+                reasons.append("MACD below zero line — trend is bearish on larger timeframe")
+            }
+        }
+
+        // -----------------------------------------------
+        // 4. BOLLINGER BANDS (Volatility + Mean Reversion)
+        // -----------------------------------------------
+        let bbPosition = (currentPrice - bbLower) / (bbUpper - bbLower)  // 0 = at lower, 1 = at upper
+        let bbWidth = (bbUpper - bbLower) / bbMiddle * 100  // bandwidth as %
+
+        if bbPosition < 0.05 {
+            buyScore += 2.5
+            confluenceCount += 1
+            reasons.append("Price at lower Bollinger Band — extreme oversold, bounce likely")
+        } else if bbPosition < 0.2 {
+            buyScore += 1.5
+            reasons.append("Price near lower Bollinger Band — approaching support")
+        } else if bbPosition > 0.95 {
+            sellScore += 2.5
+            confluenceCount += 1
+            reasons.append("Price at upper Bollinger Band — extreme overbought, pullback likely")
+        } else if bbPosition > 0.8 {
+            sellScore += 1.5
+            reasons.append("Price near upper Bollinger Band — approaching resistance")
+        }
+
+        // Bollinger Squeeze (low volatility → big move coming)
+        if bbWidth < 3 {
+            reasons.append("Bollinger squeeze detected — volatility expansion imminent (direction unclear)")
+        }
+
+        // -----------------------------------------------
+        // 5. TREND STRENGTH (ADX filter)
+        // -----------------------------------------------
+        // ADX tells us if the market is trending or choppy
+        // High ADX (>25) = trending, signals are reliable
+        // Low ADX (<20) = choppy, signals are noise
+        let trendStrength: Double
+        if adx > 30 {
+            trendStrength = 1.3  // boost signals
+            reasons.append("ADX \(Int(adx)) — strong trend, signals amplified")
+        } else if adx > 25 {
+            trendStrength = 1.1
+            reasons.append("ADX \(Int(adx)) — moderate trend")
+        } else if adx > 20 {
+            trendStrength = 0.9  // dampen signals
+            reasons.append("ADX \(Int(adx)) — weak trend, signals dampened")
         } else {
-            reasons.append("MACD — insufficient data for reliable reading")
+            trendStrength = 0.6  // heavily dampen
+            reasons.append("ADX \(Int(adx)) — choppy/ranging market, signals unreliable")
         }
 
-        // 4. Price momentum (last 5 candles)
-        let lookback = min(5, closes.count - 1)
-        let recentPrices = Array(closes.suffix(lookback + 1))
-        let momentum = recentPrices.last! - recentPrices.first!
-        let momentumPct = (momentum / recentPrices.first!) * 100
-        if momentum > 0 {
-            buyScore += 1
-            reasons.append("Short-term momentum +\(String(format: "%.1f", momentumPct))% — rising")
+        buyScore *= trendStrength
+        sellScore *= trendStrength
+
+        // -----------------------------------------------
+        // 6. SUPPORT / RESISTANCE proximity
+        // -----------------------------------------------
+        let distToSupport = ((currentPrice - support) / currentPrice) * 100
+        let distToResistance = ((resistance - currentPrice) / currentPrice) * 100
+
+        if distToSupport < 2 && distToSupport >= 0 {
+            buyScore += 1.5
+            reasons.append("Price \(String(format: "%.1f", distToSupport))% above support at \(formatUSD(support)) — bounce zone")
+        } else if distToResistance < 2 && distToResistance >= 0 {
+            sellScore += 1.5
+            reasons.append("Price \(String(format: "%.1f", distToResistance))% below resistance at \(formatUSD(resistance)) — rejection zone")
+        }
+
+        // -----------------------------------------------
+        // 7. MOMENTUM (multi-period)
+        // -----------------------------------------------
+        let mom5 = momentum(closes, 5)
+        let mom10 = momentum(closes, 10)
+
+        if mom5 > 0 && mom10 > 0 {
+            buyScore += 1.5
+            confluenceCount += 1
+            reasons.append("Both 5-day and 10-day momentum positive — sustained buying")
+        } else if mom5 < 0 && mom10 < 0 {
+            sellScore += 1.5
+            confluenceCount += 1
+            reasons.append("Both 5-day and 10-day momentum negative — sustained selling")
+        } else if mom5 > 0 && mom10 < 0 {
+            reasons.append("Short-term bounce but longer-term still bearish — caution")
         } else {
-            sellScore += 1
-            reasons.append("Short-term momentum \(String(format: "%.1f", momentumPct))% — falling")
+            reasons.append("Short-term weakness but longer-term still bullish — noise")
         }
 
-        // 5. Price vs SMA25 (mean reversion signal)
-        let priceVsSMA = ((currentPrice - sma25) / sma25) * 100
-        if priceVsSMA < -5 {
-            buyScore += 1
-            reasons.append("Price \(String(format: "%.1f", abs(priceVsSMA)))% below average — potential value")
-        } else if priceVsSMA > 5 {
-            sellScore += 1
-            reasons.append("Price \(String(format: "%.1f", priceVsSMA))% above average — extended")
-        }
+        // ===============================================
+        // FINAL SIGNAL DETERMINATION
+        // ===============================================
 
-        // Determine signal
         let totalScore = buyScore + sellScore
-        let netScore = Double(buyScore - sellScore)
-        let confidence = totalScore > 0 ? (abs(netScore) / Double(totalScore)) * 100 : 50
+        let netScore = buyScore - sellScore
+        let rawConfidence = totalScore > 0 ? (abs(netScore) / totalScore) * 100 : 50
 
+        // Confluence bonus: more independent systems agreeing = higher confidence
+        let confluenceBonus = Double(confluenceCount) * 5.0
+        let confidence = min(rawConfidence + confluenceBonus, 95)
+
+        // Signal thresholds — higher bar for action (reduce false signals)
         let signal: SignalType
-        if netScore >= 5 {
+        if netScore >= 6 && confluenceCount >= 3 {
             signal = .strongBuy
-        } else if netScore >= 2 {
+        } else if netScore >= 3 && confluenceCount >= 2 {
             signal = .buy
-        } else if netScore <= -5 {
+        } else if netScore <= -6 && confluenceCount >= 3 {
             signal = .strongSell
-        } else if netScore <= -2 {
+        } else if netScore <= -3 && confluenceCount >= 2 {
             signal = .sell
         } else {
             signal = .hold
@@ -124,82 +270,153 @@ class SignalEngine {
 
         return TradingSignal(
             signal: signal,
-            confidence: min(confidence, 95),
+            confidence: confidence,
             reasons: reasons,
             indicators: indicators,
             generatedAt: Date()
         )
     }
 
-    // MARK: - Indicators
+    // MARK: - Core Indicators
 
-    private func calculateSMA(closes: [Double], period: Int) -> Double {
+    private func calcSMA(_ closes: [Double], _ period: Int) -> Double {
         guard period > 0, closes.count >= period else { return closes.last ?? 0 }
-        let slice = Array(closes.suffix(period))
-        return slice.reduce(0, +) / Double(slice.count)
+        return Array(closes.suffix(period)).reduce(0, +) / Double(period)
     }
 
-    private func calculateRSI(closes: [Double], period: Int) -> Double {
-        guard period > 0, closes.count > period else { return 50 }
-        let slice = Array(closes.suffix(period + 1))
-        var gains = 0.0
-        var losses = 0.0
-
-        for i in 1..<slice.count {
-            let change = slice[i] - slice[i - 1]
-            if change > 0 { gains += change }
-            else { losses += abs(change) }
-        }
-
-        let avgGain = gains / Double(period)
-        let avgLoss = losses / Double(period)
-
-        guard avgLoss > 0 else { return 100 }
-        let rs = avgGain / avgLoss
-        return 100 - (100 / (1 + rs))
-    }
-
-    private func calculateEMA(closes: [Double], period: Int) -> [Double] {
+    private func calcEMA(_ closes: [Double], _ period: Int) -> [Double] {
         guard closes.count >= period, period > 0 else { return [] }
-        let multiplier = 2.0 / Double(period + 1)
-        var ema: [Double] = []
-
-        // First EMA = SMA of first `period` values
-        let firstSMA = Array(closes.prefix(period)).reduce(0, +) / Double(period)
-        ema.append(firstSMA)
-
+        let k = 2.0 / Double(period + 1)
+        var ema = [Array(closes.prefix(period)).reduce(0, +) / Double(period)]
         for i in period..<closes.count {
-            let value = (closes[i] - ema.last!) * multiplier + ema.last!
-            ema.append(value)
+            ema.append(closes[i] * k + ema.last! * (1 - k))
         }
         return ema
     }
 
-    private func calculateMACD(closes: [Double]) -> (Double, Double) {
-        // Adaptive: use shorter periods if data is limited
-        let fastPeriod = min(12, closes.count / 3)
-        let slowPeriod = min(26, closes.count / 2)
-        let signalPeriod = min(9, max(3, closes.count / 4))
+    private func calcRSI(_ closes: [Double], _ period: Int) -> Double {
+        guard period > 0, closes.count > period else { return 50 }
+        let slice = Array(closes.suffix(period + 1))
+        var gains = 0.0, losses = 0.0
+        for i in 1..<slice.count {
+            let d = slice[i] - slice[i - 1]
+            if d > 0 { gains += d } else { losses += abs(d) }
+        }
+        let avgG = gains / Double(period)
+        let avgL = losses / Double(period)
+        guard avgL > 0 else { return 100 }
+        return 100 - (100 / (1 + avgG / avgL))
+    }
 
-        guard fastPeriod > 0, slowPeriod > 0, closes.count >= slowPeriod else {
-            return (.nan, .nan)
+    private func calcMACD(_ closes: [Double]) -> (Double, Double, Double) {
+        let ema12 = calcEMA(closes, 12)
+        let ema26 = calcEMA(closes, 26)
+        guard !ema12.isEmpty, !ema26.isEmpty else { return (.nan, .nan, .nan) }
+
+        let count = min(ema12.count, ema26.count)
+        let macdLine = zip(Array(ema12.suffix(count)), Array(ema26.suffix(count))).map { $0.0 - $0.1 }
+        guard macdLine.count >= 9 else { return (macdLine.last ?? 0, .nan, .nan) }
+
+        let signalArr = calcEMA(macdLine, 9)
+        let signal = signalArr.last ?? .nan
+        let histogram = (macdLine.last ?? 0) - signal
+        return (macdLine.last ?? 0, signal, histogram)
+    }
+
+    private func calcStochastic(_ closes: [Double], kPeriod: Int, dPeriod: Int) -> (Double, Double) {
+        guard closes.count >= kPeriod else { return (50, 50) }
+        let slice = Array(closes.suffix(kPeriod))
+        let high = slice.max()!
+        let low = slice.min()!
+        let k = high != low ? ((closes.last! - low) / (high - low)) * 100 : 50
+
+        // %D = SMA of %K (simplified: use current K for single-point D)
+        // In practice with daily data, D ≈ K smoothed
+        let d = k  // simplified — in full implementation you'd track K history
+        return (k, d)
+    }
+
+    private func calcBollingerBands(_ closes: [Double], period: Int, stdDev: Double) -> (Double, Double, Double) {
+        guard closes.count >= period else {
+            let p = closes.last ?? 0
+            return (p, p, p)
+        }
+        let slice = Array(closes.suffix(period))
+        let sma = slice.reduce(0, +) / Double(period)
+        let variance = slice.map { ($0 - sma) * ($0 - sma) }.reduce(0, +) / Double(period)
+        let sd = sqrt(variance)
+        return (sma + stdDev * sd, sma, sma - stdDev * sd)
+    }
+
+    private func calcATR(_ closes: [Double], period: Int) -> Double {
+        guard closes.count > period else { return 0 }
+        var trueRanges: [Double] = []
+        for i in 1..<closes.count {
+            let high = max(closes[i], closes[i - 1])
+            let low = min(closes[i], closes[i - 1])
+            trueRanges.append(high - low)
+        }
+        return Array(trueRanges.suffix(period)).reduce(0, +) / Double(period)
+    }
+
+    private func calcADX(_ closes: [Double], period: Int) -> Double {
+        // Simplified ADX: measures trend strength using directional movement
+        guard closes.count > period + 1 else { return 25 }
+        var plusDM: [Double] = []
+        var minusDM: [Double] = []
+
+        for i in 1..<closes.count {
+            let up = closes[i] - closes[i - 1]
+            let down = closes[i - 1] - closes[i]
+            plusDM.append(up > down && up > 0 ? up : 0)
+            minusDM.append(down > up && down > 0 ? down : 0)
         }
 
-        let emaFast = calculateEMA(closes: closes, period: fastPeriod)
-        let emaSlow = calculateEMA(closes: closes, period: slowPeriod)
+        let avgPlus = Array(plusDM.suffix(period)).reduce(0, +) / Double(period)
+        let avgMinus = Array(minusDM.suffix(period)).reduce(0, +) / Double(period)
+        let atr = calcATR(closes, period: period)
+        guard atr > 0 else { return 25 }
 
-        guard !emaFast.isEmpty, !emaSlow.isEmpty else { return (.nan, .nan) }
+        let diPlus = (avgPlus / atr) * 100
+        let diMinus = (avgMinus / atr) * 100
+        let diSum = diPlus + diMinus
+        guard diSum > 0 else { return 25 }
+        let dx = abs(diPlus - diMinus) / diSum * 100
+        return dx
+    }
 
-        // Align to shorter
-        let count = min(emaFast.count, emaSlow.count)
-        let alignedFast = Array(emaFast.suffix(count))
-        let alignedSlow = Array(emaSlow.suffix(count))
+    private func calcVWAP(_ closes: [Double]) -> Double {
+        // Simplified VWAP proxy: volume-weighted average (using price as proxy for volume)
+        // Real VWAP needs volume data, this is a trend-weighted average instead
+        let period = min(20, closes.count)
+        let slice = Array(closes.suffix(period))
+        var weightedSum = 0.0
+        var weightTotal = 0.0
+        for (i, price) in slice.enumerated() {
+            let weight = Double(i + 1)  // more recent = heavier weight
+            weightedSum += price * weight
+            weightTotal += weight
+        }
+        return weightedSum / weightTotal
+    }
 
-        let macdLine = zip(alignedFast, alignedSlow).map { $0.0 - $0.1 }
-        guard macdLine.count >= signalPeriod else { return (macdLine.last ?? 0, .nan) }
+    private func findSupportResistance(_ closes: [Double]) -> (Double, Double) {
+        // Find recent swing lows (support) and swing highs (resistance)
+        let lookback = min(20, closes.count)
+        let slice = Array(closes.suffix(lookback))
+        let recentLow = slice.min()!
+        let recentHigh = slice.max()!
 
-        let signalArr = calculateEMA(closes: macdLine, period: signalPeriod)
-        return (macdLine.last ?? 0, signalArr.last ?? .nan)
+        // Adjust: support is slightly below recent low, resistance slightly above recent high
+        let atr = calcATR(closes, period: 14)
+        let support = recentLow - atr * 0.2
+        let resistance = recentHigh + atr * 0.2
+        return (support, resistance)
+    }
+
+    private func momentum(_ closes: [Double], _ period: Int) -> Double {
+        guard closes.count > period else { return 0 }
+        return closes.last! - closes[closes.count - period - 1]
     }
 
     private func formatUSD(_ value: Double) -> String {
