@@ -157,7 +157,8 @@ class SignalEngine {
         sellScore *= trendStrength
 
         // 6. VOLUME CONFIRMATION
-        if let vol = volumeAnalysis {
+        do {
+            let vol = volumeAnalysis
             if vol.isVolumeSpike {
                 if buyScore > sellScore {
                     buyScore += 2; confluenceCount += 1
